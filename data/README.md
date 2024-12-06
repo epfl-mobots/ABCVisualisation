@@ -1,0 +1,1 @@
+This folder contains thermal, heater and co2 data to be used for annotation within the generateAnotatedVideo.py file.

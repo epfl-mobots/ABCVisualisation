@@ -1,0 +1,6 @@
+[submodule "ABCImaging"]
+	path = ABCImaging
+	url = https://github.com/epfl-mobots/ABCImaging.git
+[submodule "ABCThermalPlots"]
+	path = ABCThermalPlots
+	url = https://github.com/epfl-mobots/ABCThermalPlots.git
