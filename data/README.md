@@ -1,1 +1,1 @@
-This folder contains thermal, heater and co2 data to be used for annotation within the generateAnotatedVideo.py file.
+This folder contains thermal, heater and co2 data to be used for annotation within the generateAnotatedVideo.py file. The data can be acquired either through the downloadData.ipynb script, or by downloading it directly from the influxdb interface.

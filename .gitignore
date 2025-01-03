@@ -2,3 +2,4 @@
 outputVideos
 __pycache__
 .vscode
+data/*.csv
