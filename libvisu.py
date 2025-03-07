@@ -261,11 +261,22 @@ class HiveSnapshot():
             for img in self.imgs:
                 self.pp_imgs.append(beautify_frame(img))
 
-        # Add thermal field to the images
+        # Add thermal field and isotherms to the images
         rgb_bg = [cv2.cvtColor(img, cv2.COLOR_GRAY2RGB) for img in self.pp_imgs]
 
         overlays = []
-        for tf in [self.upper_tf, self.lower_tf]:
+        # Store the max temp coordinates and value
+        max_temp = 0
+        min_temp = 200
+        max_temp_coords = (0,0,0) # First coordinate is the frame, then x and y
+        for i,tf in enumerate([self.upper_tf, self.lower_tf]):
+            max_temp_tf = np.max(tf.thermal_field)
+            min_temp_tf = np.min(tf.thermal_field)
+            if min_temp_tf < min_temp:
+                min_temp = min_temp_tf
+            if max_temp_tf > max_temp:
+                max_temp = max_temp_tf
+                max_temp_coords = (i,tf.thermal_field.argmax() % tf.thermal_field.shape[1], tf.thermal_field.argmax() // tf.thermal_field.shape[1])
             therm_field_norm = (tf.thermal_field - v_min) / (v_max - v_min)
             # Apply matplotlib colormap (e.g., 'bwr')
             colormap = plt.colormaps['bwr']
@@ -314,7 +325,7 @@ class HiveSnapshot():
                             segment_points = np.round(segment_points).astype(np.int32)
                             
                             # Draw the segment as a polyline
-                            cv2.polylines(canvas[i], [segment_points], isClosed=False, color=255, thickness=2)
+                            cv2.polylines(canvas[i], [segment_points], isClosed=False, color=255, thickness=5)
                         
                         # Start a new segment
                         segment_points = [vert]
@@ -328,22 +339,34 @@ class HiveSnapshot():
                     segment_points[:, 0] *= canvas[i].shape[1] / tf_shape[1]
                     segment_points[:, 1] *= canvas[i].shape[0] / tf_shape[0]
                     segment_points = np.round(segment_points).astype(np.int32)
-                    cv2.polylines(canvas[i], [segment_points], isClosed=False, color=255, thickness=2)
-                
+                    cv2.polylines(canvas[i], [segment_points], isClosed=False, color=255, thickness=5)
 
         # Overlay the contours onto your RGB overlay
         for i,_ in enumerate(overlays):
-            overlays[i][canvas[i] > 0] = (0, 0, 0, 255)  # Black contour
+            overlays[i][canvas[i] > 0] = (0, 0, 0, 255)  # Black contour with full opacity
 
-        # # Resize the overlays
-        # for i, overlay in enumerate(overlays):
-        #     overlays[i] = cv2.resize(overlay, (int(overlay.shape[1] * HiveSnapshot.resize_factor), int(overlay.shape[0] * HiveSnapshot.resize_factor)), interpolation=cv2.INTER_NEAREST)
+        # Put a circular marker at the max temperature coordinates
+        cv2.circle(
+            overlays[max_temp_coords[0]], 
+            (int(max_temp_coords[1] * HiveSnapshot.resize_factor), int(max_temp_coords[2] * HiveSnapshot.resize_factor)), 
+            20, 
+            (255, 0, 0, 255), 
+            -1
+        )
+
+        # Prepare overlays for each picture
+        overlays_flipped = {0:overlays[0],1:overlays[1],2:cv2.flip(overlays[0],1),3:cv2.flip(overlays[1],1)}
         
         for i, bg in enumerate(rgb_bg):
-            overlay_rgb = overlays[i%2]
-            if i >=2:
-                # Flip the overlay_rgb horizontally
-                overlay_rgb = cv2.flip(overlay_rgb, 1)
+            overlay_rgb = overlays_flipped[i]
+            if i%2 == max_temp_coords[0]:
+                coords = (int(max_temp_coords[1] * HiveSnapshot.resize_factor), int(max_temp_coords[2] * HiveSnapshot.resize_factor))
+                if i>=2:
+                    # Flip the coordinates horizontally
+                    coords = (overlay_rgb.shape[1]-coords[0],coords[1])
+                # Add a 20px margin to the coordinates
+                coords = (coords[0]+20,coords[1]-20)
+                cv2.putText(overlay_rgb, f"{max_temp:.1f}", coords, cv2.FONT_HERSHEY_SIMPLEX, 4, (255, 0, 0, 255), 10, cv2.LINE_AA)
             add_transparent_image(rgb_bg[i], overlay_rgb, self.thermal_shifts[i][0],self.thermal_shifts[i][1])
 
         # Add heaters data on the images
@@ -391,10 +414,10 @@ class HiveSnapshot():
 
             for co2 in co2_showed:
                 # Compute the size of the text based on the metabolic measure. Put max_size at 30000 and min_size at 300, linearly.
-                # First clip the values to be between 300 and 30000
-                co2_value = int(np.clip(self.metabolic[co2],300,30000))
-                color = (255 * (co2_value - 300) / (30000 - 300),0,0)
-                size = min_size + (max_size - min_size) * (co2_value - 300) / (30000 - 300)
+                # First clip the values to be between 360 and 30000
+                co2_value = int(np.clip(self.metabolic[co2],360,30000))
+                color = (255 * (co2_value - 360) / (30000 - 360),0,0)
+                size = min_size + (max_size - min_size) * (co2_value - 360) / (30000 - 360)
                 if (co2[1] == 'r' and i<2) or (co2[1] == 'l' and i>=2):
                     # Change the x value of co2_pos to decrease with the size
                     co2_pos[co2] = (co2_pos[co2][0] - int(800*(size-min_size)/(max_size-min_size)), co2_pos[co2][1])
@@ -402,6 +425,13 @@ class HiveSnapshot():
 
 
         assembled_img = imageHiveOverview(rgb_bg, self.imgs_names)
+        # add ambient temperature on the image (min temp)
+        ambient_t_text = f"Ambient: {min_temp:.1f} C"
+        (text_width, text_height), _ = cv2.getTextSize(ambient_t_text, cv2.FONT_HERSHEY_SIMPLEX, 2, 3)
+        rectangle_bgr = (255, 255, 255)
+        box_coords = ((2700, 2130 + 15), (2700 + text_width, 2130 - text_height - 15))
+        cv2.rectangle(assembled_img, box_coords[0], box_coords[1], rectangle_bgr, cv2.FILLED)
+        cv2.putText(assembled_img, ambient_t_text, (2700, 2130), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 3, cv2.LINE_AA)
 
         return assembled_img
     
