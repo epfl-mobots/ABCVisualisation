@@ -223,7 +223,7 @@ def add_transparent_image(background, foreground, x_offset:int=None, y_offset:in
     return background
 
 
-class HiveSnapshot():
+class Hive():
     '''
     This class is meant to hold imaging, thermal and metabolic data for a specific hive at a specific time. It contains the following data:
     - 4 images of the hive (hxr1, hxr2, hxr3, hxr4)
@@ -284,7 +284,7 @@ class HiveSnapshot():
             # Scale to [0, 255] for OpenCV compatibility
             overlay_rgb = (overlay_colored * 255).astype(np.uint8)
             overlay_rgb[:,:,3] = int(255*thermal_transparency)
-            overlay_rgb = cv2.resize(overlay_rgb, (int(overlay_rgb.shape[1] * HiveSnapshot.resize_factor), int(overlay_rgb.shape[0] * HiveSnapshot.resize_factor)), interpolation=cv2.INTER_NEAREST)
+            overlay_rgb = cv2.resize(overlay_rgb, (int(overlay_rgb.shape[1] * Hive.resize_factor), int(overlay_rgb.shape[0] * Hive.resize_factor)), interpolation=cv2.INTER_NEAREST)
             overlays.append(overlay_rgb)
 
         _contours = [plt.contour(tf.thermal_field, levels=contours, colors='none') for tf in [self.upper_tf, self.lower_tf]]  # Only compute, no color
@@ -348,7 +348,7 @@ class HiveSnapshot():
         # Put a circular marker at the max temperature coordinates
         cv2.circle(
             overlays[max_temp_coords[0]], 
-            (int(max_temp_coords[1] * HiveSnapshot.resize_factor), int(max_temp_coords[2] * HiveSnapshot.resize_factor)), 
+            (int(max_temp_coords[1] * Hive.resize_factor), int(max_temp_coords[2] * Hive.resize_factor)), 
             20, 
             (255, 0, 0, 255), 
             -1
@@ -360,7 +360,7 @@ class HiveSnapshot():
         for i, bg in enumerate(rgb_bg):
             overlay_rgb = overlays_flipped[i]
             if i%2 == max_temp_coords[0]:
-                coords = (int(max_temp_coords[1] * HiveSnapshot.resize_factor), int(max_temp_coords[2] * HiveSnapshot.resize_factor))
+                coords = (int(max_temp_coords[1] * Hive.resize_factor), int(max_temp_coords[2] * Hive.resize_factor))
                 if i>=2:
                     # Flip the coordinates horizontally
                     coords = (overlay_rgb.shape[1]-coords[0],coords[1])
@@ -383,17 +383,17 @@ class HiveSnapshot():
                     width = int(2 + 7 * pwm / 950)
                     mrg = 10 # Just a small padding around the text
                     if i == 0:
-                        x_pos = self.thermal_shifts[i][0] + HiveSnapshot.inter_htr_dist+ (4-int(htr[-1])//2) * (HiveSnapshot.inter_htr_dist + HiveSnapshot.htr_size[0])
-                        y_pos = self.thermal_shifts[i][1] + HiveSnapshot.inter_htr_dist + (int(htr[-1])%2) * (HiveSnapshot.inter_htr_dist + HiveSnapshot.htr_size[1])
-                        cv2.rectangle(rgb_bg[0], (x_pos,y_pos), (x_pos+HiveSnapshot.htr_size[0],y_pos+HiveSnapshot.htr_size[1]), color, width)
-                        cv2.putText(rgb_bg[0], f"{int(pwm)}        {obj:.1f}", (x_pos+mrg,y_pos+HiveSnapshot.htr_size[1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
-                        cv2.rectangle(rgb_bg[2], (rgb_bg[2].shape[1]-x_pos,y_pos), (rgb_bg[2].shape[1]-x_pos-HiveSnapshot.htr_size[0],y_pos+HiveSnapshot.htr_size[1]), color, width)
-                        cv2.putText(rgb_bg[2], f"{int(pwm)}        {obj:.1f}", (rgb_bg[2].shape[1]-x_pos-HiveSnapshot.htr_size[0]+mrg,y_pos+HiveSnapshot.htr_size[1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
+                        x_pos = self.thermal_shifts[i][0] + Hive.inter_htr_dist+ (4-int(htr[-1])//2) * (Hive.inter_htr_dist + Hive.htr_size[0])
+                        y_pos = self.thermal_shifts[i][1] + Hive.inter_htr_dist + (int(htr[-1])%2) * (Hive.inter_htr_dist + Hive.htr_size[1])
+                        cv2.rectangle(rgb_bg[0], (x_pos,y_pos), (x_pos+Hive.htr_size[0],y_pos+Hive.htr_size[1]), color, width)
+                        cv2.putText(rgb_bg[0], f"{int(pwm)}        {obj:.1f}", (x_pos+mrg,y_pos+Hive.htr_size[1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
+                        cv2.rectangle(rgb_bg[2], (rgb_bg[2].shape[1]-x_pos,y_pos), (rgb_bg[2].shape[1]-x_pos-Hive.htr_size[0],y_pos+Hive.htr_size[1]), color, width)
+                        cv2.putText(rgb_bg[2], f"{int(pwm)}        {obj:.1f}", (rgb_bg[2].shape[1]-x_pos-Hive.htr_size[0]+mrg,y_pos+Hive.htr_size[1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
                     else:
-                        cv2.rectangle(rgb_bg[1], (x_pos,y_pos), (x_pos+HiveSnapshot.htr_size[0],y_pos+HiveSnapshot.htr_size[1]), color, width)
-                        cv2.putText(rgb_bg[1], f"{int(pwm)}        {obj:.1f}", (x_pos+mrg,y_pos+HiveSnapshot.htr_size[1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
-                        cv2.rectangle(rgb_bg[3], (rgb_bg[3].shape[0]-x_pos,y_pos), (rgb_bg[3].shape[0]-x_pos-HiveSnapshot.htr_size[0],y_pos+HiveSnapshot.htr_size[1]), color, width)
-                        cv2.putText(rgb_bg[3], f"{int(pwm)}        {obj:.1f}", (rgb_bg[3].shape[0]-x_pos-HiveSnapshot.htr_size[0]+mrg,y_pos+HiveSnapshot.htr_size[1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
+                        cv2.rectangle(rgb_bg[1], (x_pos,y_pos), (x_pos+Hive.htr_size[0],y_pos+Hive.htr_size[1]), color, width)
+                        cv2.putText(rgb_bg[1], f"{int(pwm)}        {obj:.1f}", (x_pos+mrg,y_pos+Hive.htr_size[1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
+                        cv2.rectangle(rgb_bg[3], (rgb_bg[3].shape[0]-x_pos,y_pos), (rgb_bg[3].shape[0]-x_pos-Hive.htr_size[0],y_pos+Hive.htr_size[1]), color, width)
+                        cv2.putText(rgb_bg[3], f"{int(pwm)}        {obj:.1f}", (rgb_bg[3].shape[0]-x_pos-Hive.htr_size[0]+mrg,y_pos+Hive.htr_size[1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
 
 
 
