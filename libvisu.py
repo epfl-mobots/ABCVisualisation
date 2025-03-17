@@ -357,12 +357,6 @@ class Hive():
             overlay_rgb = cv2.resize(overlay_rgb, (int(overlay_rgb.shape[1] * Hive.resize_factor), int(overlay_rgb.shape[0] * Hive.resize_factor)), interpolation=cv2.INTER_NEAREST)
             overlays.append(overlay_rgb)
 
-        # Plot the first overlay
-        plt.figure(figsize=(10, 10))
-        plt.imshow(overlays[0])
-        plt.axis('off')
-        plt.show()
-
         fig, ax = plt.subplots()  # Create a dummy figure to prevent automatic plotting
         _contours = [ax.contour(tf.thermal_field, levels=contours, colors='none') for tf in [self.upper_tf, self.lower_tf]] # Only compute, no color
         plt.close(fig)  # Close the figure to prevent display
@@ -420,21 +414,9 @@ class Hive():
                     segment_points = np.round(segment_points).astype(np.int32)
                     cv2.polylines(canvas[i], [segment_points], isClosed=False, color=255, thickness=5)
 
-        # plot the first canva
-        plt.figure(figsize=(10, 10))
-        plt.imshow(canvas[0])
-        plt.axis('off')
-        plt.show()
-
         # Overlay the contours onto your RGB overlay
         for i,_ in enumerate(overlays):
             overlays[i][canvas[i] > 0] = (0, 0, 0, 255)  # Black contour with full opacity
-
-        # plot the first overlay with contours
-        plt.figure(figsize=(10, 10))
-        plt.imshow(overlays[0])
-        plt.axis('off')
-        plt.show()
 
         # Put a circular marker at the max temperature coordinates
         cv2.circle(
@@ -470,23 +452,22 @@ class Hive():
                 pwm = htr_df[htr_df['_field']=='pwm']['_value'].values[0]
                 obj = htr_df[htr_df['_field']=='obj']['_value'].values[0]
 
-                if obj !=0:
-                    # Draw a rectangle around the heater
-                    color = (255 * pwm / 950,0,0)
-                    width = int(2 + 7 * pwm / 950)
-                    mrg = 10 # Just a small padding around the text
-                    if i == 0:
-                        x_pos = self.thermal_shifts[i][0] + Hive.inter_htr_dist+ (4-int(htr[-1])//2) * (Hive.inter_htr_dist + Hive.htr_size[0])
-                        y_pos = self.thermal_shifts[i][1] + Hive.inter_htr_dist + (int(htr[-1])%2) * (Hive.inter_htr_dist + Hive.htr_size[1])
-                        cv2.rectangle(rgb_bg[0], (x_pos,y_pos), (x_pos+Hive.htr_size[0],y_pos+Hive.htr_size[1]), color, width)
-                        cv2.putText(rgb_bg[0], f"{int(pwm)}        {obj:.1f}", (x_pos+mrg,y_pos+Hive.htr_size[1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
-                        cv2.rectangle(rgb_bg[2], (rgb_bg[2].shape[1]-x_pos,y_pos), (rgb_bg[2].shape[1]-x_pos-Hive.htr_size[0],y_pos+Hive.htr_size[1]), color, width)
-                        cv2.putText(rgb_bg[2], f"{int(pwm)}        {obj:.1f}", (rgb_bg[2].shape[1]-x_pos-Hive.htr_size[0]+mrg,y_pos+Hive.htr_size[1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
-                    else:
-                        cv2.rectangle(rgb_bg[1], (x_pos,y_pos), (x_pos+Hive.htr_size[0],y_pos+Hive.htr_size[1]), color, width)
-                        cv2.putText(rgb_bg[1], f"{int(pwm)}        {obj:.1f}", (x_pos+mrg,y_pos+Hive.htr_size[1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
-                        cv2.rectangle(rgb_bg[3], (rgb_bg[3].shape[0]-x_pos,y_pos), (rgb_bg[3].shape[0]-x_pos-Hive.htr_size[0],y_pos+Hive.htr_size[1]), color, width)
-                        cv2.putText(rgb_bg[3], f"{int(pwm)}        {obj:.1f}", (rgb_bg[3].shape[0]-x_pos-Hive.htr_size[0]+mrg,y_pos+Hive.htr_size[1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
+                # Draw a rectangle around the heater
+                color = (255 * pwm / 950,0,0)
+                width = int(2 + 7 * pwm / 950)
+                mrg = 10 # Just a small padding around the text
+                if i == 0:
+                    x_pos = self.thermal_shifts[i][0] + Hive.inter_htr_dist+ (4-int(htr[-1])//2) * (Hive.inter_htr_dist + Hive.htr_size[0])
+                    y_pos = self.thermal_shifts[i][1] + Hive.inter_htr_dist + (int(htr[-1])%2) * (Hive.inter_htr_dist + Hive.htr_size[1])
+                    cv2.rectangle(rgb_bg[0], (x_pos,y_pos), (x_pos+Hive.htr_size[0],y_pos+Hive.htr_size[1]), color, width)
+                    cv2.putText(rgb_bg[0], f"{int(pwm)}        {obj:.1f}", (x_pos+mrg,y_pos+Hive.htr_size[1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
+                    cv2.rectangle(rgb_bg[2], (rgb_bg[2].shape[1]-x_pos,y_pos), (rgb_bg[2].shape[1]-x_pos-Hive.htr_size[0],y_pos+Hive.htr_size[1]), color, width)
+                    cv2.putText(rgb_bg[2], f"{int(pwm)}        {obj:.1f}", (rgb_bg[2].shape[1]-x_pos-Hive.htr_size[0]+mrg,y_pos+Hive.htr_size[1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
+                else:
+                    cv2.rectangle(rgb_bg[1], (x_pos,y_pos), (x_pos+Hive.htr_size[0],y_pos+Hive.htr_size[1]), color, width)
+                    cv2.putText(rgb_bg[1], f"{int(pwm)}        {obj:.1f}", (x_pos+mrg,y_pos+Hive.htr_size[1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
+                    cv2.rectangle(rgb_bg[3], (rgb_bg[3].shape[0]-x_pos,y_pos), (rgb_bg[3].shape[0]-x_pos-Hive.htr_size[0],y_pos+Hive.htr_size[1]), color, width)
+                    cv2.putText(rgb_bg[3], f"{int(pwm)}        {obj:.1f}", (rgb_bg[3].shape[0]-x_pos-Hive.htr_size[0]+mrg,y_pos+Hive.htr_size[1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
 
 
     def snapshot(self,thermal_transparency:float=0.25,v_min:float=10,v_max:float=35,contours:list=[]):
@@ -507,7 +488,7 @@ class Hive():
             rgb_bg, min_temp = self._tmp_snapshot(rgb_bg,v_min,v_max,thermal_transparency,contours) # Adds thermal field and isotherms to the images
 
         if self.htr_upper is not None and self.htr_lower is not None:
-            self._htr_snapshot(rgb_bg,min_temp) # Adds heaters data on the images
+            self._htr_snapshot(rgb_bg) # Adds heaters data on the images
 
         if self.metabolic is not None:
             self._co2_snapshot(rgb_bg) # Add the CO2 measurements on the images
