@@ -11,8 +11,48 @@ from preproc import beautify_frame
 from PIL import Image  # Or OpenCV if preferred
 from matplotlib.path import Path
 
-# Path to the synced Synology drive
-synology_path = "/path/to/synology/drive"  # Replace with your Synology path
+def fetchImagesPaths(rootpath_imgs, datetimes, hive_nb, images_fill_limit = 30):
+    '''
+    Fetches the images' paths for a specific hive at specific datetimes.
+    Parameters:
+    - rootpath_imgs: str, root path to the images
+    - datetimes: pd.DatetimeIndex, datetimes for which we want the images
+    - hive: int, hive number
+    - images_fill_limit: int, maximum number of images to fill the gaps with the previous images. Default is 30 (5 hours).
+    Returns:
+    - imgs_paths_filtered: pd.DataFrame, containing the image paths. Each row is a datetime, each column is a RPi.
+    '''
+
+    # Get the list of folders in the rootpath
+    paths = [os.path.join(rootpath_imgs, f) for f in os.listdir(rootpath_imgs) if os.path.isdir(os.path.join(rootpath_imgs, f))]
+    paths = [path for path in paths if "h"+hive_nb in path]
+    rpis = [path.split("/")[-1][3] for path in paths]
+
+    # Order the paths alphabetically
+    paths.sort() # Now this contains the path to all RPis images
+
+    # For each dt in datetimes, find the image path that == dt for each RPi. Put the paths in a df where each row is a dt and each column is a RPi
+    imgs_paths = pd.DataFrame(index=datetimes, columns=[os.path.basename(path)[:4] for path in paths])
+    for dt in datetimes:
+        for path in paths:
+            filename = "hive"+hive_nb+"_rpi"+path.split("/")[-1][3]+"_"+dt.strftime('%y%m%d-%H%M')
+            # Find the file in os.listdir(path) that contains the dt (or startswith(dt))
+            img_path = [os.path.join(path, f) for f in os.listdir(path) if filename in f]
+            if len(img_path) == 1:
+                imgs_paths.loc[dt, os.path.basename(path)[:4]] = img_path[0]
+            else:
+                imgs_paths.loc[dt, os.path.basename(path)[:4]] = None
+
+    # Check how many images are missing
+    print("Missing images before filtering: ", imgs_paths.isnull().sum().sum(), "out of", imgs_paths.shape[0]*imgs_paths.shape[1], "images.")
+
+    # Fill the gaps with the images from the previous dt
+    imgs_paths_filtered = imgs_paths.ffill(limit=images_fill_limit,axis=0)
+    # Check if there are still missing images, if so, raise an error
+    if imgs_paths_filtered.isnull().sum().sum() > 0:
+        raise ValueError(f"Still missing images, desipite filling the gaps with the previous images up to {images_fill_limit} images.")
+    
+    return imgs_paths_filtered
 
 # Function to access files and force download
 def preload_images(src_path):
@@ -28,11 +68,6 @@ def preload_images(src_path):
                     print(f"Preloaded: {file_path}")
                 except Exception as e:
                     print(f"Failed to preload {file_path}: {e}")
-
-# Run the preload process
-preload_images(synology_path)
-print("All images have been preloaded locally!")
-
 
 def prepareData(csv_path, section_prefix="#"):
     """
@@ -230,18 +265,28 @@ class Hive():
     - 2 ThermalFrames objects (upper, lower)
     - 4 metabolic measures (right, left, upper right, upper left)
     '''
+
+    # Some class variables
+    resize_factor = 10.1 # Resize factor for the thermal images relative to the IR images
+    inter_htr_dist = 25 # Distance between heaters in pixels
+    htr_shift_x = 260 # Shift in x direction of the heaters in pixels
+    htr_shift_y = 570 # Shift in y direction of the heaters in pixels
+    htr_size=(800,800) # Size of the heaters in pixels (width, height)
+
     def __init__(self, imgs:list, imgs_names:list[str], upper:ThermalFrame, lower:ThermalFrame, metabolic:pd.DataFrame, htr_upper:pd.DataFrame, htr_lower:pd.DataFrame):
         if len(imgs) != 4 or len(imgs_names) != 4:
             raise ValueError("imgs must contain 4 images")
-        if len(metabolic) != 4:
+        if metabolic is not None and len(metabolic) != 4:
             raise ValueError("metabolic must contain 4 values")
         
         self.imgs = imgs
         self.imgs_names = imgs_names
         self.upper_tf = upper
-        self.upper_tf.calculate_thermal_field()
+        if self.upper_tf is not None:
+            self.upper_tf.calculate_thermal_field()
         self.lower_tf = lower
-        self.lower_tf.calculate_thermal_field()
+        if self.lower_tf is not None:
+            self.lower_tf.calculate_thermal_field()
         self.metabolic = metabolic # pd.DataFrame that has ['ul','ur','ll','lr'] as columns and the metabolic measures as values
         self.htr_upper = htr_upper # pd.DataFrame that has ['status','pwm','avg_temp','obj','actuator_instance'] as columns
         self.htr_lower = htr_lower # pd.DataFrame that has ['status','pwm','avg_temp','obj','actuator_instance'] as columns
@@ -250,20 +295,45 @@ class Hive():
         self.thermal_shifts = [(270,500) if i<2 else (200,505) for i in range(4)]
         self.co2_pos = {'ul':(300,380),'ur':(4350,380),'ll':(330,380),'lr':(4350,380)}
 
-    def snapshot(self,thermal_transparency:float=0.25,v_min:float=10,v_max:float=35,contours:list=[]):
+    def setCo2Pos(self, co2_pos:dict):
         '''
-        Generates a global image with the 4 images of the hives with the timestamp on the pictures. It then adds the ThermalFrames ontop of the images.
+        Sets the position of the CO2 measures on the images.
         '''
-        # Preprocess images if not already done
-        if self.pp_imgs is None:
-            # Preprocess images with Preprocessing library
-            self.pp_imgs = []
-            for img in self.imgs:
-                self.pp_imgs.append(beautify_frame(img))
+        self.co2_pos = co2_pos
 
-        # Add thermal field and isotherms to the images
-        rgb_bg = [cv2.cvtColor(img, cv2.COLOR_GRAY2RGB) for img in self.pp_imgs]
+    def setThermalShifts(self, thermal_shifts:list):
+        '''
+        Sets the pixel shifts between the thermal and imaging data.
+        '''
+        self.thermal_shifts = thermal_shifts
 
+    def _co2_snapshot(self,rgb_imgs:list):
+        min_size = 4
+        max_size = 10
+
+        for i, img in enumerate(rgb_imgs):
+            if i == 0 or i == 2:
+                co2_showed = ['ur','ul']
+            else:
+                co2_showed = ['lr','ll']
+
+            co2_pos = self.co2_pos
+            if i >= 2:
+                # Flip the co2_pos horizontally
+                co2_pos = {k:(img.shape[1]-v[0]-220,v[1]) for k,v in co2_pos.items()}
+
+            for co2 in co2_showed:
+                # Compute the size of the text based on the metabolic measure. Put max_size at 30000 and min_size at 300, linearly.
+                # First clip the values to be between 360 and 30000
+                co2_value = int(np.clip(self.metabolic[co2],360,30000))
+                color = (255 * (co2_value - 360) / (30000 - 360),0,0)
+                size = min_size + (max_size - min_size) * (co2_value - 360) / (30000 - 360)
+                if (co2[1] == 'r' and i<2) or (co2[1] == 'l' and i>=2):
+                    # Change the x value of co2_pos to decrease with the size
+                    co2_pos[co2] = (co2_pos[co2][0] - int(800*(size-min_size)/(max_size-min_size)), co2_pos[co2][1])
+                cv2.putText(rgb_imgs[i], f"{co2_value}", co2_pos[co2], cv2.FONT_HERSHEY_SIMPLEX, size, color, 20, cv2.LINE_AA)
+
+    def _tmp_snapshot(self,rgb_imgs:list, v_min, v_max, thermal_transparency, contours):
         overlays = []
         # Store the max temp coordinates and value
         max_temp = 0
@@ -287,7 +357,16 @@ class Hive():
             overlay_rgb = cv2.resize(overlay_rgb, (int(overlay_rgb.shape[1] * Hive.resize_factor), int(overlay_rgb.shape[0] * Hive.resize_factor)), interpolation=cv2.INTER_NEAREST)
             overlays.append(overlay_rgb)
 
-        _contours = [plt.contour(tf.thermal_field, levels=contours, colors='none') for tf in [self.upper_tf, self.lower_tf]]  # Only compute, no color
+        # Plot the first overlay
+        plt.figure(figsize=(10, 10))
+        plt.imshow(overlays[0])
+        plt.axis('off')
+        plt.show()
+
+        fig, ax = plt.subplots()  # Create a dummy figure to prevent automatic plotting
+        _contours = [ax.contour(tf.thermal_field, levels=contours, colors='none') for tf in [self.upper_tf, self.lower_tf]] # Only compute, no color
+        plt.close(fig)  # Close the figure to prevent display
+
         # Extract paths from the contour
         paths = [
             [
@@ -341,9 +420,21 @@ class Hive():
                     segment_points = np.round(segment_points).astype(np.int32)
                     cv2.polylines(canvas[i], [segment_points], isClosed=False, color=255, thickness=5)
 
+        # plot the first canva
+        plt.figure(figsize=(10, 10))
+        plt.imshow(canvas[0])
+        plt.axis('off')
+        plt.show()
+
         # Overlay the contours onto your RGB overlay
         for i,_ in enumerate(overlays):
             overlays[i][canvas[i] > 0] = (0, 0, 0, 255)  # Black contour with full opacity
+
+        # plot the first overlay with contours
+        plt.figure(figsize=(10, 10))
+        plt.imshow(overlays[0])
+        plt.axis('off')
+        plt.show()
 
         # Put a circular marker at the max temperature coordinates
         cv2.circle(
@@ -357,7 +448,7 @@ class Hive():
         # Prepare overlays for each picture
         overlays_flipped = {0:overlays[0],1:overlays[1],2:cv2.flip(overlays[0],1),3:cv2.flip(overlays[1],1)}
         
-        for i, bg in enumerate(rgb_bg):
+        for i, bg in enumerate(rgb_imgs):
             overlay_rgb = overlays_flipped[i]
             if i%2 == max_temp_coords[0]:
                 coords = (int(max_temp_coords[1] * Hive.resize_factor), int(max_temp_coords[2] * Hive.resize_factor))
@@ -367,9 +458,11 @@ class Hive():
                 # Add a 20px margin to the coordinates
                 coords = (coords[0]+20,coords[1]-20)
                 cv2.putText(overlay_rgb, f"{max_temp:.1f}", coords, cv2.FONT_HERSHEY_SIMPLEX, 4, (255, 0, 0, 255), 10, cv2.LINE_AA)
-            add_transparent_image(rgb_bg[i], overlay_rgb, self.thermal_shifts[i][0],self.thermal_shifts[i][1])
-
-        # Add heaters data on the images
+            rgb_imgs[i]= add_transparent_image(bg, overlay_rgb, self.thermal_shifts[i][0], self.thermal_shifts[i][1])
+        
+        return rgb_imgs, min_temp
+    
+    def _htr_snapshot(self,rgb_bg:list):
         # Draw a rectangle around the heaters
         for i, htrs in enumerate([self.htr_upper, self.htr_lower]):
             for htr in [f'h{i:02d}' for i in range(10)]:
@@ -396,33 +489,28 @@ class Hive():
                         cv2.putText(rgb_bg[3], f"{int(pwm)}        {obj:.1f}", (rgb_bg[3].shape[0]-x_pos-Hive.htr_size[0]+mrg,y_pos+Hive.htr_size[1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
 
 
+    def snapshot(self,thermal_transparency:float=0.25,v_min:float=10,v_max:float=35,contours:list=[]):
+        '''
+        Generates a global image with the 4 images of the hives with the timestamp on the pictures. It then adds the ThermalFrames ontop of the images.
+        '''
+        # Preprocess images if not already done
+        if self.pp_imgs is None:
+            # Preprocess images with Preprocessing library
+            self.pp_imgs = []
+            for img in self.imgs:
+                self.pp_imgs.append(beautify_frame(img))
 
-        # Add CO2 measures on the images at self.co2_pos
-        min_size = 4
-        max_size = 10
+        rgb_bg = [cv2.cvtColor(img, cv2.COLOR_GRAY2RGB) for img in self.pp_imgs]
+        
+        min_temp = -273
+        if self.upper_tf is not None and self.lower_tf is not None:
+            rgb_bg, min_temp = self._tmp_snapshot(rgb_bg,v_min,v_max,thermal_transparency,contours) # Adds thermal field and isotherms to the images
 
-        for i, img in enumerate(rgb_bg):
-            if i == 0 or i == 2:
-                co2_showed = ['ur','ul']
-            else:
-                co2_showed = ['lr','ll']
+        if self.htr_upper is not None and self.htr_lower is not None:
+            self._htr_snapshot(rgb_bg,min_temp) # Adds heaters data on the images
 
-            co2_pos = self.co2_pos
-            if i >= 2:
-                # Flip the co2_pos horizontally
-                co2_pos = {k:(img.shape[1]-v[0]-220,v[1]) for k,v in co2_pos.items()}
-
-            for co2 in co2_showed:
-                # Compute the size of the text based on the metabolic measure. Put max_size at 30000 and min_size at 300, linearly.
-                # First clip the values to be between 360 and 30000
-                co2_value = int(np.clip(self.metabolic[co2],360,30000))
-                color = (255 * (co2_value - 360) / (30000 - 360),0,0)
-                size = min_size + (max_size - min_size) * (co2_value - 360) / (30000 - 360)
-                if (co2[1] == 'r' and i<2) or (co2[1] == 'l' and i>=2):
-                    # Change the x value of co2_pos to decrease with the size
-                    co2_pos[co2] = (co2_pos[co2][0] - int(800*(size-min_size)/(max_size-min_size)), co2_pos[co2][1])
-                cv2.putText(rgb_bg[i], f"{co2_value}", co2_pos[co2], cv2.FONT_HERSHEY_SIMPLEX, size, color, 20, cv2.LINE_AA)
-
+        if self.metabolic is not None:
+            self._co2_snapshot(rgb_bg) # Add the CO2 measurements on the images
 
         assembled_img = imageHiveOverview(rgb_bg, self.imgs_names)
         # add ambient temperature on the image (min temp)
