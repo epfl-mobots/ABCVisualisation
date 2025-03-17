@@ -269,9 +269,8 @@ class Hive():
     # Some class variables
     resize_factor = 10.1 # Resize factor for the thermal images relative to the IR images
     inter_htr_dist = 25 # Distance between heaters in pixels
-    htr_shift_x = 260 # Shift in x direction of the heaters in pixels
-    htr_shift_y = 570 # Shift in y direction of the heaters in pixels
     htr_size=(800,800) # Size of the heaters in pixels (width, height)
+    thermal_shifts = [(270,500) if i<2 else (200,505) for i in range(4)]
 
     def __init__(self, imgs:list, imgs_names:list[str], upper:ThermalFrame, lower:ThermalFrame, metabolic:pd.DataFrame, htr_upper:pd.DataFrame, htr_lower:pd.DataFrame):
         if len(imgs) != 4 or len(imgs_names) != 4:
@@ -292,7 +291,6 @@ class Hive():
         self.htr_lower = htr_lower # pd.DataFrame that has ['status','pwm','avg_temp','obj','actuator_instance'] as columns
         self.pp_imgs = None # To store the preprocessed images once computed
         # To store the pixel shifts between the thermal and imaging data. A list of 4 tuples, each tuple containing the x,y shifts for the corresponding RPi image.
-        self.thermal_shifts = [(270,500) if i<2 else (200,505) for i in range(4)]
         self.co2_pos = {'ul':(300,380),'ur':(4350,380),'ll':(330,380),'lr':(4350,380)}
 
     def setCo2Pos(self, co2_pos:dict):
@@ -305,6 +303,10 @@ class Hive():
         '''
         Sets the pixel shifts between the thermal and imaging data.
         '''
+        assert len(thermal_shifts) == 4, "thermal_shifts must contain 4 tuples"
+        for shift in thermal_shifts:
+            assert len(shift) == 2, "Each tuple in thermal_shifts must contain 2 values"
+
         self.thermal_shifts = thermal_shifts
 
     def _co2_snapshot(self,rgb_imgs:list):
