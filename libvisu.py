@@ -1,13 +1,10 @@
 # This script generates a video from a sequence of pictures. Use the Imaging conda env to run.
 import pandas as pd
-import sys, cv2, os
-sys.path.append("ABCImaging/VideoManagment")
-sys.path.append("ABCImaging/Preprocessing")
-sys.path.append("ABCThermalPlots")
+import cv2, os
 from io import StringIO
-from videolib import *
-from thermalutil import *
-from preproc import beautify_frame
+from ABCImaging.VideoManagment.videolib import *
+from ABCImaging.Preprocessing.preproc import beautify_frame
+from ABCThermalPlots.thermalutil import *
 from PIL import Image  # Or OpenCV if preferred
 from matplotlib.path import Path
 
