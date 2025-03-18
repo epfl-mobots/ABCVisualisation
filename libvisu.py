@@ -289,9 +289,30 @@ class Hive():
         self.metabolic = metabolic # pd.DataFrame that has ['ul','ur','ll','lr'] as columns and the metabolic measures as values
         self.htr_upper = htr_upper # pd.DataFrame that has ['status','pwm','avg_temp','obj','actuator_instance'] as columns
         self.htr_lower = htr_lower # pd.DataFrame that has ['status','pwm','avg_temp','obj','actuator_instance'] as columns
+        if self.htr_upper is not None and self.htr_lower is not None:
+            self.computeHtrPos()    # Computes the heater positions on the RPi images
         self.pp_imgs = None # To store the preprocessed images once computed
         # To store the pixel shifts between the thermal and imaging data. A list of 4 tuples, each tuple containing the x,y shifts for the corresponding RPi image.
         self.co2_pos = {'ul':(300,380),'ur':(4350,380),'ll':(330,380),'lr':(4350,380)}
+
+    def computeHtrPos(self):
+        '''
+        Computes the positions of the heaters based on self.thermal_shifts.
+        affects: 
+        - self.htr_pos: dict containing the positions of the heaters for each rpi (top-left and bottom-right corners of the rectangle). The keys are the rpi numbers (0,1,2,3), followed by the heater number (h00 to h09).
+        NOTE: positions are for images that have already been flipped horizontally.
+        '''
+        htr_pos = {}
+        for i in range(4):
+            htr_pos[i] = {}
+            for j in range(10):
+                x_pos = self.thermal_shifts[i][0] + self.inter_htr_dist+ (4-j//2) * (self.inter_htr_dist + self.htr_size[0])
+                y_pos = self.thermal_shifts[i][1] + self.inter_htr_dist + (j%2) * (self.inter_htr_dist + self.htr_size[1])
+                if i < 2:
+                    htr_pos[i][f'h{j:02d}'] = ((x_pos, y_pos),(x_pos+self.htr_size[0],y_pos+self.htr_size[1]))
+                else:
+                    htr_pos[i][f'h{j:02d}'] = (self.imgs[0].shape[1]-x_pos-self.htr_size[0],y_pos),(self.imgs[0].shape[1]-x_pos,y_pos+self.htr_size[1])
+        self.htr_pos = htr_pos
 
     def setCo2Pos(self, co2_pos:dict):
         '''
@@ -308,6 +329,8 @@ class Hive():
             assert len(shift) == 2, "Each tuple in thermal_shifts must contain 2 values"
 
         self.thermal_shifts = thermal_shifts
+        # Re-compute the heater positions
+        self.computeHtrPos()
 
     def _co2_snapshot(self,rgb_imgs:list):
         min_size = 4
@@ -447,8 +470,9 @@ class Hive():
         return rgb_imgs, min_temp
     
     def _htr_snapshot(self,rgb_bg:list):
-        # Draw a rectangle around the heaters
-        for i, htrs in enumerate([self.htr_upper, self.htr_lower]):
+        # Draw a rectangle around the heaters and add information about the heaters
+        for i, _ in enumerate(rgb_bg):
+            htrs = self.htr_upper if (i == 0 or i == 2) else self.htr_lower
             for htr in [f'h{i:02d}' for i in range(10)]:
                 htr_df = htrs[htrs['actuator_instance']==htr]
                 pwm = htr_df[htr_df['_field']=='pwm']['_value'].values[0]
@@ -458,19 +482,11 @@ class Hive():
                 color = (255 * pwm / 950,0,0)
                 width = int(2 + 7 * pwm / 950)
                 mrg = 10 # Just a small padding around the text
-                if i == 0:
-                    x_pos = self.thermal_shifts[i][0] + Hive.inter_htr_dist+ (4-int(htr[-1])//2) * (Hive.inter_htr_dist + Hive.htr_size[0])
-                    y_pos = self.thermal_shifts[i][1] + Hive.inter_htr_dist + (int(htr[-1])%2) * (Hive.inter_htr_dist + Hive.htr_size[1])
-                    cv2.rectangle(rgb_bg[0], (x_pos,y_pos), (x_pos+Hive.htr_size[0],y_pos+Hive.htr_size[1]), color, width)
-                    cv2.putText(rgb_bg[0], f"{int(pwm)}        {obj:.1f}", (x_pos+mrg,y_pos+Hive.htr_size[1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
-                    cv2.rectangle(rgb_bg[2], (rgb_bg[2].shape[1]-x_pos,y_pos), (rgb_bg[2].shape[1]-x_pos-Hive.htr_size[0],y_pos+Hive.htr_size[1]), color, width)
-                    cv2.putText(rgb_bg[2], f"{int(pwm)}        {obj:.1f}", (rgb_bg[2].shape[1]-x_pos-Hive.htr_size[0]+mrg,y_pos+Hive.htr_size[1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
-                else:
-                    cv2.rectangle(rgb_bg[1], (x_pos,y_pos), (x_pos+Hive.htr_size[0],y_pos+Hive.htr_size[1]), color, width)
-                    cv2.putText(rgb_bg[1], f"{int(pwm)}        {obj:.1f}", (x_pos+mrg,y_pos+Hive.htr_size[1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
-                    cv2.rectangle(rgb_bg[3], (rgb_bg[3].shape[0]-x_pos,y_pos), (rgb_bg[3].shape[0]-x_pos-Hive.htr_size[0],y_pos+Hive.htr_size[1]), color, width)
-                    cv2.putText(rgb_bg[3], f"{int(pwm)}        {obj:.1f}", (rgb_bg[3].shape[0]-x_pos-Hive.htr_size[0]+mrg,y_pos+Hive.htr_size[1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
 
+                cv2.rectangle(rgb_bg[i], self.htr_pos[i][htr][0], self.htr_pos[i][htr][1], color, width)
+                cv2.putText(rgb_bg[i], f"{int(pwm)}           {obj:.1f}", (self.htr_pos[i][htr][0][0]+mrg,self.htr_pos[i][htr][1][1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
+                # Put the heater number on top right of the rectangle
+                cv2.putText(rgb_bg[i], htr, (self.htr_pos[i][htr][0][0]+mrg,self.htr_pos[i][htr][0][1]+10*mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
 
     def snapshot(self,thermal_transparency:float=0.25,v_min:float=10,v_max:float=35,contours:list=[]):
         '''
