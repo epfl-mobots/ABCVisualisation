@@ -266,16 +266,33 @@ class Hive():
     # Some class variables
     resize_factor = 10.1 # Resize factor for the thermal images relative to the IR images
     inter_htr_dist = 25 # Distance between heaters in pixels
-    htr_size=(800,800) # Size of the heaters in pixels (width, height)
+    htr_size=(800,810) # Size of the heaters in pixels (width, height)
     thermal_shifts = [(270,500) if i<2 else (200,505) for i in range(4)]
 
-    def __init__(self, imgs:list, imgs_names:list[str], upper:ThermalFrame, lower:ThermalFrame, metabolic:pd.DataFrame, htr_upper:pd.DataFrame, htr_lower:pd.DataFrame):
+    def __init__(self, imgs:list, imgs_preprocessed:bool, imgs_names:list[str], upper:ThermalFrame, lower:ThermalFrame, metabolic:pd.DataFrame, htr_upper:pd.DataFrame, htr_lower:pd.DataFrame):
+        '''
+        Constructor for the Hive class.
+        Parameters:
+        - imgs: list of 4 images of the hive (hxr1, hxr2, hxr3, hxr4)
+        - imgs_preprocessed: bool, whether the images have been preprocessed already or not
+        - imgs_names: list of 4 strings, names of the images
+        - upper: ThermalFrame object for the upper part of the hive
+        - lower: ThermalFrame object for the lower part of the hive
+        - metabolic: pd.DataFrame that has ['ul','ur','ll','lr'] as columns and the metabolic measures as values
+        - htr_upper: pd.DataFrame that has ['status','pwm','avg_temp','obj','actuator_instance'] as columns
+        - htr_lower: pd.DataFrame that has ['status','pwm','avg_temp','obj','actuator_instance'] as columns
+        '''
+
         if len(imgs) != 4 or len(imgs_names) != 4:
             raise ValueError("imgs must contain 4 images")
         if metabolic is not None and len(metabolic) != 4:
             raise ValueError("metabolic must contain 4 values")
         
         self.imgs = imgs
+        if imgs_preprocessed:
+            self.pp_imgs = imgs
+        else:
+            self.pp_imgs = None
         self.imgs_names = imgs_names
         self.upper_tf = upper
         if self.upper_tf is not None:
@@ -288,7 +305,6 @@ class Hive():
         self.htr_lower = htr_lower # pd.DataFrame that has ['status','pwm','avg_temp','obj','actuator_instance'] as columns
         if self.htr_upper is not None and self.htr_lower is not None:
             self.computeHtrPos()    # Computes the heater positions on the RPi images
-        self.pp_imgs = None # To store the preprocessed images once computed
         # To store the pixel shifts between the thermal and imaging data. A list of 4 tuples, each tuple containing the x,y shifts for the corresponding RPi image.
         self.co2_pos = {'ul':(300,380),'ur':(4350,380),'ll':(330,380),'lr':(4350,380)}
 
@@ -328,6 +344,15 @@ class Hive():
         self.thermal_shifts = thermal_shifts
         # Re-compute the heater positions
         self.computeHtrPos()
+
+    def getBeeArena(self):
+        # Return a list that contains the bee arena (rectangle coordinates: starting in thermal_shifts and of size ThermalFrame.x_pcb*self.resize_factor) for each image
+        bee_arenas = []
+        for i in range(4):
+            bee_arena = ((self.thermal_shifts[i][0],self.thermal_shifts[i][1]),(self.thermal_shifts[i][0]+self.upper_tf.x_pcb*self.resize_factor,self.thermal_shifts[i][1]+self.upper_tf.y_pcb*self.resize_factor))
+            bee_arenas.append(bee_arena)
+
+        return bee_arenas
 
     def _co2_snapshot(self,rgb_imgs:list):
         min_size = 4
@@ -454,6 +479,7 @@ class Hive():
         
         for i, bg in enumerate(rgb_imgs):
             overlay_rgb = overlays_flipped[i]
+            # Add the max temperature value at the max temperature coordinates:
             if i%2 == max_temp_coords[0]:
                 coords = (int(max_temp_coords[1] * Hive.resize_factor), int(max_temp_coords[2] * Hive.resize_factor))
                 if i>=2:
@@ -485,7 +511,7 @@ class Hive():
                 # Put the heater number on top right of the rectangle
                 cv2.putText(rgb_bg[i], htr, (self.htr_pos[i][htr][0][0]+mrg,self.htr_pos[i][htr][0][1]+10*mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
 
-    def snapshot(self,thermal_transparency:float=0.25,v_min:float=10,v_max:float=35,contours:list=[]):
+    def snapshot(self,thermal_transparency:float=0.25,v_min:float=10,v_max:float=35,contours:list=[], annotate_names:bool=True):
         '''
         Generates a global image with the 4 images of the hives with the timestamp on the pictures. It then adds the ThermalFrames ontop of the images.
         '''
@@ -507,13 +533,14 @@ class Hive():
 
         if self.metabolic is not None:
             self._co2_snapshot(rgb_bg) # Add the CO2 measurements on the images
-
-        assembled_img = imageHiveOverview(rgb_bg, self.imgs_names)
+        
+        assembled_img = imageHiveOverview(rgb_bg, self.imgs_names, annotate_names)
         # add ambient temperature on the image (min temp)
         ambient_t_text = f"Ambient: {min_temp:.1f} C"
         (text_width, text_height), _ = cv2.getTextSize(ambient_t_text, cv2.FONT_HERSHEY_SIMPLEX, 2, 3)
         rectangle_bgr = (255, 255, 255)
         box_coords = ((2700, 2130 + 15), (2700 + text_width, 2130 - text_height - 15))
+        # Add ambient temperature to the image
         cv2.rectangle(assembled_img, box_coords[0], box_coords[1], rectangle_bgr, cv2.FILLED)
         cv2.putText(assembled_img, ambient_t_text, (2700, 2130), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 3, cv2.LINE_AA)
 
