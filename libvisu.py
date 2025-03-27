@@ -266,7 +266,7 @@ class Hive():
     # Some class variables
     resize_factor = 10.1 # Resize factor for the thermal images relative to the IR images
     inter_htr_dist = 25 # Distance between heaters in pixels
-    htr_size=(800,810) # Size of the heaters in pixels (width, height)
+    htr_size=(800,800) # Size of the heaters in pixels (width, height)
     thermal_shifts = [(270,500) if i<2 else (200,505) for i in range(4)]
 
     def __init__(self, imgs:list, imgs_preprocessed:bool, imgs_names:list[str], upper:ThermalFrame, lower:ThermalFrame, metabolic:pd.DataFrame, htr_upper:pd.DataFrame, htr_lower:pd.DataFrame):
@@ -320,7 +320,7 @@ class Hive():
             htr_pos[i] = {}
             for j in range(10):
                 x_pos = self.thermal_shifts[i][0] + self.inter_htr_dist+ (4-j//2) * (self.inter_htr_dist + self.htr_size[0])
-                y_pos = self.thermal_shifts[i][1] + self.inter_htr_dist + (j%2) * (self.inter_htr_dist + self.htr_size[1])
+                y_pos = self.thermal_shifts[i][1] + 2*self.inter_htr_dist + (j%2) * (3*self.inter_htr_dist + self.htr_size[1])
                 if i < 2:
                     htr_pos[i][f'h{j:02d}'] = ((x_pos, y_pos),(x_pos+self.htr_size[0],y_pos+self.htr_size[1]))
                 else:
@@ -349,7 +349,7 @@ class Hive():
         # Return a list that contains the bee arena (rectangle coordinates: starting in thermal_shifts and of size ThermalFrame.x_pcb*self.resize_factor) for each image
         bee_arenas = []
         for i in range(4):
-            bee_arena = ((self.thermal_shifts[i][0],self.thermal_shifts[i][1]),(self.thermal_shifts[i][0]+self.upper_tf.x_pcb*self.resize_factor,self.thermal_shifts[i][1]+self.upper_tf.y_pcb*self.resize_factor))
+            bee_arena = ((self.thermal_shifts[i][0],self.thermal_shifts[i][1]),(int(self.thermal_shifts[i][0]+self.upper_tf.x_pcb*self.resize_factor),int(self.thermal_shifts[i][1]+self.upper_tf.y_pcb*self.resize_factor)))
             bee_arenas.append(bee_arena)
 
         return bee_arenas
