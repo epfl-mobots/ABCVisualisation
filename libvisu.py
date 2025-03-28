@@ -15,7 +15,7 @@ def fetchImagesPaths(rootpath_imgs, datetimes, hive_nb, images_fill_limit = 30):
     - rootpath_imgs: str, root path to the images
     - datetimes: pd.DatetimeIndex, datetimes for which we want the images
     - hive: int, hive number
-    - images_fill_limit: int, maximum number of images to fill the gaps with the previous images. Default is 30 (5 hours).
+    - images_fill_limit: int, maximum number of images to fill the gaps with the previous images. Default is 30 (5 hours at 1 img/min).
     Returns:
     - imgs_paths_filtered: pd.DataFrame, containing the image paths. Each row is a datetime, each column is a RPi.
     '''
