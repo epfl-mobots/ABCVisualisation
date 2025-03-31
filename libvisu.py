@@ -8,7 +8,7 @@ from ABCThermalPlots.thermalutil import *
 from PIL import Image  # Or OpenCV if preferred
 from matplotlib.path import Path
 
-def fetchImagesPaths(rootpath_imgs, datetimes, hive_nb, images_fill_limit = 30):
+def fetchImagesPaths(rootpath_imgs, datetimes, hive_nb:str, images_fill_limit = 30):
     '''
     Fetches the images' paths for a specific hive at specific datetimes.
     Parameters:
@@ -272,7 +272,7 @@ class Hive():
     htr_size=(800,800) # Size of the heaters in pixels (width, height)
     thermal_shifts = [(270,500) if i<2 else (200,505) for i in range(4)]
 
-    def __init__(self, imgs:list, imgs_preprocessed:bool, imgs_names:list[str], upper:ThermalFrame, lower:ThermalFrame, metabolic:pd.DataFrame, htr_upper:pd.DataFrame, htr_lower:pd.DataFrame):
+    def __init__(self, imgs:list, imgs_preprocessed:bool, imgs_names:list[str], upper:ThermalFrame = None, lower:ThermalFrame = None, metabolic:pd.DataFrame = None, htr_upper:pd.DataFrame = None, htr_lower:pd.DataFrame = None):
         '''
         Constructor for the Hive class.
         Parameters:
