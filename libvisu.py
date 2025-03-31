@@ -13,7 +13,7 @@ def fetchImagesPaths(rootpath_imgs, datetimes, hive_nb, images_fill_limit = 30):
     Fetches the images' paths for a specific hive at specific datetimes.
     Parameters:
     - rootpath_imgs: str, root path to the images
-    - datetimes: pd.DatetimeIndex, datetimes for which we want the images
+    - datetimes: list of pd.DatetimeIndex, datetimes for which we want the images
     - hive: int, hive number
     - images_fill_limit: int, maximum number of images to fill the gaps with the previous images. Default is 30 (5 hours at 1 img/min).
     Returns:
@@ -44,7 +44,10 @@ def fetchImagesPaths(rootpath_imgs, datetimes, hive_nb, images_fill_limit = 30):
     print("Missing images before filtering: ", imgs_paths.isnull().sum().sum(), "out of", imgs_paths.shape[0]*imgs_paths.shape[1], "images.")
 
     # Fill the gaps with the images from the previous dt
-    imgs_paths_filtered = imgs_paths.ffill(limit=images_fill_limit,axis=0)
+    if images_fill_limit > 0:
+        imgs_paths_filtered = imgs_paths.ffill(limit=images_fill_limit,axis=0)
+    else:
+        imgs_paths_filtered = imgs_paths
     # Check if there are still missing images, if so, raise an error
     if imgs_paths_filtered.isnull().sum().sum() > 0:
         raise ValueError(f"Still missing images, desipite filling the gaps with the previous images up to {images_fill_limit} images.")
@@ -349,10 +352,18 @@ class Hive():
         # Return a list that contains the bee arena (rectangle coordinates: starting in thermal_shifts and of size ThermalFrame.x_pcb*self.resize_factor) for each image
         bee_arenas = []
         for i in range(4):
-            bee_arena = ((self.thermal_shifts[i][0],self.thermal_shifts[i][1]),(int(self.thermal_shifts[i][0]+self.upper_tf.x_pcb*self.resize_factor),int(self.thermal_shifts[i][1]+self.upper_tf.y_pcb*self.resize_factor)))
+            bee_arena = ((self.thermal_shifts[i][0],self.thermal_shifts[i][1]),(int(self.thermal_shifts[i][0]+ThermalFrame.x_pcb*self.resize_factor),int(self.thermal_shifts[i][1]+ThermalFrame.y_pcb*self.resize_factor)))
             bee_arenas.append(bee_arena)
 
         return bee_arenas
+    
+    def getHeaterImages(self):
+        '''
+        Returns the images of the heaters for each RPi. The images are cropped to the size of the heaters.
+        '''
+        bee_arena_px = self.getBeeArena()
+        bee_arenas_imgs = [self.pp_imgs[rpi][bee_arena_px[rpi][0][1]:bee_arena_px[rpi][1][1], bee_arena_px[rpi][0][0]:bee_arena_px[rpi][1][0]] for rpi in range(4)]
+        return bee_arenas_imgs
 
     def _co2_snapshot(self,rgb_imgs:list):
         min_size = 4
@@ -511,7 +522,7 @@ class Hive():
                 # Put the heater number on top right of the rectangle
                 cv2.putText(rgb_bg[i], htr, (self.htr_pos[i][htr][0][0]+mrg,self.htr_pos[i][htr][0][1]+10*mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
 
-    def snapshot(self,thermal_transparency:float=0.25,v_min:float=10,v_max:float=35,contours:list=[], annotate_names:bool=True):
+    def snapshot(self,thermal_transparency:float=0.25,v_min:float=10,v_max:float=35,contours:list=[], annotate_names:bool=True,show_frame_border:bool=False):
         '''
         Generates a global image with the 4 images of the hives with the timestamp on the pictures. It then adds the ThermalFrames ontop of the images.
         '''
@@ -533,7 +544,14 @@ class Hive():
 
         if self.metabolic is not None:
             self._co2_snapshot(rgb_bg) # Add the CO2 measurements on the images
-        
+
+        if show_frame_border:
+            # Draw a rectangle around the hive using self.thermal_shifts
+            for i, img in enumerate(rgb_bg):
+                # Draw a rectangle around the hive
+                rectangles = self.getBeeArena()
+                cv2.rectangle(img, rectangles[i][0], rectangles[i][1], (255, 0, 0), 10)
+
         assembled_img = imageHiveOverview(rgb_bg, self.imgs_names, annotate_names)
         # add ambient temperature on the image (min temp)
         ambient_t_text = f"Ambient: {min_temp:.1f} C"
