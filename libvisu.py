@@ -349,7 +349,9 @@ class Hive():
         self.computeHtrPos()
 
     def getBeeArena(self):
-        # Return a list that contains the bee arena (rectangle coordinates: starting in thermal_shifts and of size ThermalFrame.x_pcb*self.resize_factor) for each image
+        '''
+        Returns a list that contains the bee arena (rectangle coordinates: starting in thermal_shifts and of size ThermalFrame.x_pcb*self.resize_factor) for each image
+        '''
         bee_arenas = []
         for i in range(4):
             bee_arena = ((self.thermal_shifts[i][0],self.thermal_shifts[i][1]),(int(self.thermal_shifts[i][0]+ThermalFrame.x_pcb*self.resize_factor),int(self.thermal_shifts[i][1]+ThermalFrame.y_pcb*self.resize_factor)))
@@ -564,16 +566,47 @@ class Hive():
 
         return assembled_img
     
-    def plot_temp(self, frame:str, ax, cmap = None, show_cb:bool = False, contours = None, v_min = None, v_max = None):
+    def honeySnapshot(self, thermal_transparency:float=0.25, v_min:float=10, v_max:float=35, contours:list=[], annotate_names:bool=True, show_frame_border:bool=False):
         '''
-        Plots the thermal data on the images.
+        Generates a global image with the 4 images of the hives with the timestamp on the pictures. It then adds the honey segmentation masks ontop of the images.
         '''
-        if frame == "upper":
-            return self.upper_tf.plot_thermal_field(ax, cmap, show_cb, contours, v_min, v_max)
-        elif frame == "lower":
-            return self.lower_tf.plot_thermal_field(ax,cmap, show_cb, contours, v_min, v_max)
-        else:
-            raise ValueError("frame must be either 'upper' or 'lower'")
+        assert self.honey_masks is not None, "Honey masks not loaded. Use loadHoneyMasks() to load the masks or generate them."
+        assert self.pp_imgs is not None, "Images not preprocessed. Use snapshot() to preprocess the images first."
+
+        rgb_bg = [cv2.cvtColor(img, cv2.COLOR_GRAY2RGB) for img in self.pp_imgs]
+        if show_frame_border:
+            # Draw a rectangle around the hive using self.thermal_shifts
+            for i, img in enumerate(rgb_bg):
+                # Draw a rectangle around the hive
+                rectangles = self.getBeeArena()
+                cv2.rectangle(img, rectangles[i][0], rectangles[i][1], (255, 0, 0), 10)
+
+        # Convert the masks to RGB in yellow
+        masks_rgb = []
+        for mask in self.honey_masks:
+            mask_rgb = np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.uint8)
+            mask_rgb[mask == 255] = (255, 255, 0)
+
+        # Overlay the honey masks on the images
+        for i, img in enumerate(rgb_bg):
+            rgb_bg[i] = add_transparent_image(img, masks_rgb[i], self.thermal_shifts[i][0], self.thermal_shifts[i][1])
+
+        assembled_img = imageHiveOverview(rgb_bg, self.imgs_names, annotate_names)
+        return assembled_img
+
+    def loadHoneyMasks(self, masks:list):
+        '''
+        Loads the honey masks for each image. The masks are stored in a list of 4 images (1 for each RPi).
+        The masks should be in the same order as the images.
+        '''
+        assert len(masks) == 4, "Masks must contain 4 images"
+        x,y = ThermalFrame.x_pcb*self.resize_factor, ThermalFrame.y_pcb*self.resize_factor
+        for i, mask in enumerate(masks):
+            assert mask.shape[0] == y, f"Mask {i} has a height of {mask.shape[0]} instead of {y}"
+            assert mask.shape[1] == x, f"Mask {i} has a width of {mask.shape[1]} instead of {x}"
+            assert mask.dtype == np.uint8, f"Mask {i} has a dtype of {mask.dtype} instead of np.uint8"
+            
+        self.honey_masks = masks
         
     def compute_pixel_shifts(self):
         '''
@@ -614,4 +647,3 @@ class Hive():
         
         self.thermal_shifts = shifts
         return self.thermal_shifts
-    
