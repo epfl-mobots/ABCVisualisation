@@ -566,11 +566,12 @@ class Hive():
 
         return assembled_img
     
-    def honeySnapshot(self, thermal_transparency:float=0.25, v_min:float=10, v_max:float=35, contours:list=[], annotate_names:bool=True, show_frame_border:bool=False):
+    def honeySnapshot(self, transparency:float=0.25, v_min:float=10, v_max:float=35, contours:list=[], annotate_names:bool=True, show_frame_border:bool=False):
         '''
         Generates a global image with the 4 images of the hives with the timestamp on the pictures. It then adds the honey segmentation masks ontop of the images.
         '''
         assert self.honey_masks is not None, "Honey masks not loaded. Use loadHoneyMasks() to load the masks or generate them."
+        assert len(self.honey_masks) == 4, "Honey masks must contain 4 images"
         assert self.pp_imgs is not None, "Images not preprocessed. Use snapshot() to preprocess the images first."
 
         rgb_bg = [cv2.cvtColor(img, cv2.COLOR_GRAY2RGB) for img in self.pp_imgs]
@@ -582,14 +583,15 @@ class Hive():
                 cv2.rectangle(img, rectangles[i][0], rectangles[i][1], (255, 0, 0), 10)
 
         # Convert the masks to RGB in yellow
-        masks_rgb = []
+        masks_rgba = []
         for mask in self.honey_masks:
-            mask_rgb = np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.uint8)
-            mask_rgb[mask == 255] = (255, 255, 0)
+            mask_rgba = np.zeros((mask.shape[0], mask.shape[1], 4), dtype=np.uint8)
+            mask_rgba[mask == 255] = (255, 255, 0, int(255*transparency))
+            masks_rgba.append(mask_rgba)
 
         # Overlay the honey masks on the images
         for i, img in enumerate(rgb_bg):
-            rgb_bg[i] = add_transparent_image(img, masks_rgb[i], self.thermal_shifts[i][0], self.thermal_shifts[i][1])
+            rgb_bg[i] = add_transparent_image(img, masks_rgba[i], self.thermal_shifts[i][0], self.thermal_shifts[i][1])
 
         assembled_img = imageHiveOverview(rgb_bg, self.imgs_names, annotate_names)
         return assembled_img
