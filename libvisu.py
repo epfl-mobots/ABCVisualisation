@@ -313,7 +313,7 @@ class Hive():
 
     def computeHtrPos(self):
         '''
-        Computes the positions of the heaters based on self.thermal_shifts.
+        Computes the positions of the heaters in pp_imgs based on self.thermal_shifts.
         affects: 
         - self.htr_pos: dict containing the positions of the heaters for each rpi (top-left and bottom-right corners of the rectangle). The keys are the rpi numbers (0,1,2,3), followed by the heater number (h00 to h09).
         NOTE: positions are for images that have already been flipped horizontally.
@@ -329,6 +329,36 @@ class Hive():
                 else:
                     htr_pos[i][f'h{j:02d}'] = (self.imgs[0].shape[1]-x_pos-self.htr_size[0],y_pos),(self.imgs[0].shape[1]-x_pos,y_pos+self.htr_size[1])
         self.htr_pos = htr_pos
+
+    def computeHtrHoneyContent(self):
+        '''
+        This function computes the honey content of all heaters of all rpis based on the honey masks.
+        returns:
+        - htr_content: dict containing the honey content for each heater for each rpi. The keys are the rpi numbers (0,1,2,3), followed by the heater number (h00 to h09).
+        affects:
+        - sets self.htr_content
+        '''
+        if self.honey_masks is None:
+            raise ValueError("Honey masks not loaded. Use loadHoneyMasks() to load the masks or generate them.")
+        
+        if self.htr_pos is None:
+            self.computeHtrPos()
+
+        htr_content = {}
+        for rpi in range(4):
+            htr_content[rpi] = {}
+            mask = self.honey_masks[rpi]
+            for htr in range(10):
+                htr_pos = self.htr_pos[rpi][f'h{htr:02d}']
+                htr_pos = ((htr_pos[0][0] - self.thermal_shifts[rpi][0], htr_pos[0][1] - self.thermal_shifts[rpi][1]), (htr_pos[1][0] - self.thermal_shifts[rpi][0], htr_pos[1][1] - self.thermal_shifts[rpi][1]))
+
+                # Get the honey mask in the area of the heater
+                mask_honey = mask[htr_pos[0][1]:htr_pos[1][1], htr_pos[0][0]:htr_pos[1][0]]
+                # Compute the honey content
+                htr_content[rpi][f'h{htr:02d}'] = np.sum(mask_honey>0) / (mask_honey.shape[0] * mask_honey.shape[1]) * 100 # in percent
+
+        self.htr_content = htr_content
+        return htr_content
 
     def setCo2Pos(self, co2_pos:dict):
         '''
