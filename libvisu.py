@@ -1,14 +1,18 @@
 # This script generates a video from a sequence of pictures. Use the Imaging conda env to run.
 import pandas as pd
 import cv2, os
+import h5py
 from io import StringIO
 from ABCImaging.VideoManagment.videolib import *
 from ABCImaging.Preprocessing.preproc import beautify_frame
+from ABCImaging.CellContentIdentification.cellcontent import *
 from ABCThermalPlots.thermalutil import *
 from PIL import Image  # Or OpenCV if preferred
 from matplotlib.path import Path
+from EasIlastik import * # Just a simple package that runs iLastik in headless mode
 
-def fetchImagesPaths(rootpath_imgs, datetimes, hive_nb:str, images_fill_limit = 30):
+
+def fetchImagesPaths(rootpath_imgs, datetimes, hive_nb:str, images_fill_limit = 30, rpis:list[int]=[1,2,3,4]):
     '''
     Fetches the images' paths for a specific hive at specific datetimes.
     Parameters:
@@ -23,10 +27,9 @@ def fetchImagesPaths(rootpath_imgs, datetimes, hive_nb:str, images_fill_limit = 
     # Get the list of folders in the rootpath
     paths = [os.path.join(rootpath_imgs, f) for f in os.listdir(rootpath_imgs) if os.path.isdir(os.path.join(rootpath_imgs, f))]
     paths = [path for path in paths if "h"+hive_nb in path]
-    rpis = [path.split("/")[-1][3] for path in paths]
-
+    paths = [path for path in paths if int(os.path.basename(path)[3]) in rpis] # Only keep the paths that are in rpis
     # Order the paths alphabetically
-    paths.sort() # Now this contains the path to all RPis images
+    paths.sort() # Now this contains the path to all RPis images included in rpis (arg)
 
     # For each dt in datetimes, find the image path that == dt for each RPi. Put the paths in a df where each row is a dt and each column is a RPi
     imgs_paths = pd.DataFrame(index=datetimes, columns=[os.path.basename(path)[:4] for path in paths])
@@ -346,8 +349,10 @@ class Hive():
 
         htr_content = {}
         for rpi in range(4):
-            htr_content[rpi] = {}
+            htr_content[rpi+1] = {}
             mask = self.honey_masks[rpi]
+            if mask is None:
+                continue
             for htr in range(10):
                 htr_pos = self.htr_pos[rpi][f'h{htr:02d}']
                 htr_pos = ((htr_pos[0][0] - self.thermal_shifts[rpi][0], htr_pos[0][1] - self.thermal_shifts[rpi][1]), (htr_pos[1][0] - self.thermal_shifts[rpi][0], htr_pos[1][1] - self.thermal_shifts[rpi][1]))
@@ -355,7 +360,7 @@ class Hive():
                 # Get the honey mask in the area of the heater
                 mask_honey = mask[htr_pos[0][1]:htr_pos[1][1], htr_pos[0][0]:htr_pos[1][0]]
                 # Compute the honey content
-                htr_content[rpi][f'h{htr:02d}'] = np.sum(mask_honey>0) / (mask_honey.shape[0] * mask_honey.shape[1]) * 100 # in percent
+                htr_content[rpi+1][f'h{htr:02d}'] = np.sum(mask_honey>0) / (mask_honey.shape[0] * mask_honey.shape[1]) * 100 # in percent
 
         self.htr_content = htr_content
         return htr_content
@@ -396,6 +401,88 @@ class Hive():
         bee_arena_px = self.getBeeArena()
         bee_arenas_imgs = [self.pp_imgs[rpi][bee_arena_px[rpi][0][1]:bee_arena_px[rpi][1][1], bee_arena_px[rpi][0][0]:bee_arena_px[rpi][1][0]] for rpi in range(4)]
         return bee_arenas_imgs
+        
+    def process_ilastik_mask(self, honey_mask, hive_num:int, rpi_num:int, min_size:int=3000,threshold:int =128):
+        honey_mask = honey_mask + 255
+        honey_mask = np.uint8(honey_mask)
+        if hive_num == 1:
+            if rpi_num == 2:
+                honey_mask[-30:,:] = 0            
+            elif rpi_num == 4:
+                honey_mask[-70:,:] = 0
+
+        mask = thresholding(honey_mask, threshold)
+
+        mask=morph(mask, kernel_size=7, close_first=False)
+        # Remove the pixel patches that are smaller than a certain size
+        mask=remove_small_patches(mask, min_size)
+        return mask
+    
+    def ilastikSegmentHoney(self, model_path:str, rpis:list[int]=[1,2,3,4]):
+        '''
+        Uses the provided ilastik model to segment the honey in the images. Uses a tmp folder to store the cropped images but deletes them after processing.
+        args:
+        - model_path: str, path to the ilastik model
+        - rpis: list of int, rpi cameras to process. Default is all ([1,2,3,4])
+        '''
+        cropped_images = self.getHeaterImages()
+        # Create a temporary directory to store the cropped images
+        tmp_dir = os.path.join(os.getcwd(), "tmp")
+        os.makedirs(tmp_dir, exist_ok=False)
+        cropped_images_dir = os.path.join(tmp_dir, "cropped_images/")
+        results_folder = os.path.join(tmp_dir, "results/")
+        os.makedirs(cropped_images_dir, exist_ok=True)
+        os.makedirs(results_folder, exist_ok=True)
+
+        # Save the cropped images to the temporary directory
+        for i, img in enumerate(cropped_images):
+            if i+1 in rpis:
+                img_name = self.imgs_names[i]
+                img_path = os.path.join(cropped_images_dir, f"{img_name}_cropped.png")
+                cv2.imwrite(img_path, img)
+
+        # Run ilastik on the temporary directory
+        assert model_path.endswith(".ilp"), "Model path must end with .ilp"
+        print("Results folder: ", results_folder)
+
+        print(tmp_dir,model_path,results_folder)
+        run_ilastik(input_path = cropped_images_dir,
+                    model_path = model_path,
+                    result_base_path = results_folder,
+                    export_source = "Probabilities",
+                    output_format = "hdf5")
+        
+        result_files = [f for f in os.listdir(results_folder) if f.endswith(".h5")]
+        assert len(result_files) == len(rpis), "The number of result files does not match the number of requested processed images."
+        result_files.sort()
+        masks = []
+
+        for i in range(4):
+            if i+1 not in rpis:
+                masks.append(None)
+                continue
+            # Get the file name corresponding to the current rpi. It should contain "rpi{i+1}" in the name.
+            file = [f for f in result_files if f"rpi{i+1}" in f][0]
+            hive_num = int(file.split("_")[0][4:]) # Get the hive number from the file name
+            mask_path = os.path.join(results_folder, file)
+            # Open file in read mode
+            with h5py.File(mask_path, "r") as f:
+                honey_mask = f["exported_data"][:, :, 0]
+                mask = self.process_ilastik_mask(honey_mask,hive_num=hive_num, rpi_num=i+1, min_size=2500, threshold=40)
+                # Append the result to the list
+                masks.append(mask)
+
+        self.loadHoneyMasks(masks)
+
+        # Delete tmp_dir and its contents
+        for root, dirs, files in os.walk(tmp_dir, topdown=False):
+            for name in files:
+                os.remove(os.path.join(root, name))
+            for name in dirs:
+                os.rmdir(os.path.join(root, name))
+
+        os.rmdir(tmp_dir)
+
 
     def _co2_snapshot(self,rgb_imgs:list):
         min_size = 4
@@ -615,13 +702,17 @@ class Hive():
         # Convert the masks to RGB in yellow
         masks_rgba = []
         for mask in self.honey_masks:
+            if mask is None:
+                masks_rgba.append(None)
+                continue
             mask_rgba = np.zeros((mask.shape[0], mask.shape[1], 4), dtype=np.uint8)
             mask_rgba[mask == 255] = (255, 255, 0, int(255*transparency))
             masks_rgba.append(mask_rgba)
 
         # Overlay the honey masks on the images
         for i, img in enumerate(rgb_bg):
-            rgb_bg[i] = add_transparent_image(img, masks_rgba[i], self.thermal_shifts[i][0], self.thermal_shifts[i][1])
+            if masks_rgba[i] is not None:
+                rgb_bg[i] = add_transparent_image(img, masks_rgba[i], self.thermal_shifts[i][0], self.thermal_shifts[i][1])
 
         assembled_img = imageHiveOverview(rgb_bg, self.imgs_names, annotate_names)
         return assembled_img
@@ -632,11 +723,14 @@ class Hive():
         The masks should be in the same order as the images.
         '''
         assert len(masks) == 4, "Masks must contain 4 images"
+        # make sure at least one mask is not None
+        assert any(mask is not None for mask in masks), "At least one mask must be provided"
         x,y = ThermalFrame.x_pcb*self.resize_factor, ThermalFrame.y_pcb*self.resize_factor
         for i, mask in enumerate(masks):
-            assert mask.shape[0] == y, f"Mask {i} has a height of {mask.shape[0]} instead of {y}"
-            assert mask.shape[1] == x, f"Mask {i} has a width of {mask.shape[1]} instead of {x}"
-            assert mask.dtype == np.uint8, f"Mask {i} has a dtype of {mask.dtype} instead of np.uint8"
+            if mask is not None:     
+                assert mask.shape[0] == y, f"Mask {i} has a height of {mask.shape[0]} instead of {y}"
+                assert mask.shape[1] == x, f"Mask {i} has a width of {mask.shape[1]} instead of {x}"
+                assert mask.dtype == np.uint8, f"Mask {i} has a dtype of {mask.dtype} instead of np.uint8"
             
         self.honey_masks = masks
         
