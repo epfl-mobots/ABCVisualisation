@@ -1,8 +1,8 @@
 # This script generates a video from a sequence of pictures. Use the Imaging conda env to run.
 import pandas as pd
-import cv2, os
-import h5py
+import cv2, os, h5py, sys
 from io import StringIO
+sys.path.append(os.path.abspath("ABCVisualisation"))
 from ABCImaging.VideoManagment.videolib import *
 from ABCImaging.Preprocessing.preproc import beautify_frame
 from ABCImaging.CellContentIdentification.cellcontent import *
@@ -273,9 +273,10 @@ class Hive():
     resize_factor = 10.1 # Resize factor for the thermal images relative to the IR images
     inter_htr_dist = 25 # Distance between heaters in pixels
     htr_size=(800,800) # Size of the heaters in pixels (width, height)
-    thermal_shifts = [(270,500) if i<2 else (200,505) for i in range(4)]
+    base_thermal_shifts = [[(260,510),(260,500),(220,520),(220,420)], # Hive 1
+                           [(260,510),(260,500),(190,440),(220,490)]] # Hive 2
 
-    def __init__(self, imgs:list, imgs_preprocessed:bool, imgs_names:list[str], upper:ThermalFrame = None, lower:ThermalFrame = None, metabolic:pd.DataFrame = None, htr_upper:pd.DataFrame = None, htr_lower:pd.DataFrame = None):
+    def __init__(self, imgs:list, imgs_preprocessed:bool, imgs_names:list[str], upper:ThermalFrame = None, lower:ThermalFrame = None, metabolic:pd.DataFrame = None, htr_upper:pd.DataFrame = None, htr_lower:pd.DataFrame = None, hive_nb:int = None):
         '''
         Constructor for the Hive class.
         Parameters:
@@ -300,6 +301,11 @@ class Hive():
         else:
             self.pp_imgs = None
         self.imgs_names = imgs_names
+        self.hive_nb = hive_nb
+        if self.hive_nb is not None:
+            self.setThermalShifts(Hive.base_thermal_shifts[self.hive_nb-1]) # Set the thermal shifts for the hive number
+        else:
+            self.setThermalShifts(Hive.base_thermal_shifts[0])
         self.upper_tf = upper
         if self.upper_tf is not None:
             self.upper_tf.calculate_thermal_field()
@@ -309,8 +315,6 @@ class Hive():
         self.metabolic = metabolic # pd.DataFrame that has ['ul','ur','ll','lr'] as columns and the metabolic measures as values
         self.htr_upper = htr_upper # pd.DataFrame that has ['status','pwm','avg_temp','obj','actuator_instance'] as columns
         self.htr_lower = htr_lower # pd.DataFrame that has ['status','pwm','avg_temp','obj','actuator_instance'] as columns
-        if self.htr_upper is not None and self.htr_lower is not None:
-            self.computeHtrPos()    # Computes the heater positions on the RPi images
         # To store the pixel shifts between the thermal and imaging data. A list of 4 tuples, each tuple containing the x,y shifts for the corresponding RPi image.
         self.co2_pos = {'ul':(300,380),'ur':(4350,380),'ll':(330,380),'lr':(4350,380)}
 
@@ -333,7 +337,7 @@ class Hive():
                     htr_pos[i][f'h{j:02d}'] = (self.imgs[0].shape[1]-x_pos-self.htr_size[0],y_pos),(self.imgs[0].shape[1]-x_pos,y_pos+self.htr_size[1])
         self.htr_pos = htr_pos
 
-    def computeHtrHoneyContent(self):
+    def computeHtrHoneyContent(self, verbose:bool=False):
         '''
         This function computes the honey content of all heaters of all rpis based on the honey masks.
         returns:
@@ -361,8 +365,23 @@ class Hive():
                 mask_honey = mask[htr_pos[0][1]:htr_pos[1][1], htr_pos[0][0]:htr_pos[1][0]]
                 # Compute the honey content
                 htr_content[rpi+1][f'h{htr:02d}'] = np.sum(mask_honey>0) / (mask_honey.shape[0] * mask_honey.shape[1]) * 100 # in percent
-
+        
         self.htr_content = htr_content
+        frame_content = {}
+        for pos in ["upper", "lower"]:
+            frame_content[pos] = {}
+            if pos == "upper" and (self.htr_content[1] == {} or self.htr_content[3] == {}):
+                continue
+            if pos == "lower" and (self.htr_content[2] == {} or self.htr_content[4] == {}):
+                continue
+            for htr in range(10):
+                frame_content[pos][f'h{htr:02d}'] = np.mean([self.htr_content[1][f'h{htr:02d}'], self.htr_content[3][f'h{htr:02d}']]) if pos == "upper" else np.mean([self.htr_content[2][f'h{htr:02d}'], self.htr_content[4][f'h{htr:02d}']])
+        self.frame_content = frame_content
+        if verbose:
+            print("Heater content:")
+            print(self.htr_content)
+            print("Frame content:")
+            print(self.frame_content)
         return htr_content
 
     def setCo2Pos(self, co2_pos:dict):
