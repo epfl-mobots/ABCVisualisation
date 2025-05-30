@@ -364,7 +364,7 @@ class Hive():
                 # Get the honey mask in the area of the heater
                 mask_honey = mask[htr_pos[0][1]:htr_pos[1][1], htr_pos[0][0]:htr_pos[1][0]]
                 # Compute the honey content
-                htr_content[rpi+1][f'h{htr:02d}'] = np.sum(mask_honey>0) / (mask_honey.shape[0] * mask_honey.shape[1]) * 100 # in percent
+                htr_content[rpi+1][f'h{htr:02d}'] = (np.sum(mask_honey>0) / (mask_honey.shape[0] * mask_honey.shape[1])) * 100 # In percents
         
         self.htr_content = htr_content
         frame_content = {}
