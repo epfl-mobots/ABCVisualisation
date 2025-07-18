@@ -11,52 +11,6 @@ from PIL import Image  # Or OpenCV if preferred
 from matplotlib.path import Path
 from EasIlastik import * # Just a simple package that runs iLastik in headless mode
 
-
-def fetchImagesPaths(rootpath_imgs, datetimes, hive_nb:str, images_fill_limit = 30, rpis:list[int]=[1,2,3,4]):
-    '''
-    Fetches the images' paths for a specific hive at specific datetimes.
-    Parameters:
-    - rootpath_imgs: str, root path to the images
-    - datetimes: list of pd.DatetimeIndex, datetimes for which we want the images. Precision at minute level.
-    - hive: int, hive number
-    - images_fill_limit: int, maximum number of images to fill the gaps with the previous images. Default is 30 (5 hours at 1 img/min).
-    Returns:
-    - imgs_paths_filtered: pd.DataFrame, containing the image paths. Each row is a datetime, each column is a RPi.
-    '''
-
-    # Get the list of folders in the rootpath
-    paths = [os.path.join(rootpath_imgs, f) for f in os.listdir(rootpath_imgs) if os.path.isdir(os.path.join(rootpath_imgs, f))]
-    paths = [path for path in paths if "h"+hive_nb in path]
-    paths = [path for path in paths if int(os.path.basename(path)[3]) in rpis] # Only keep the paths that are in rpis
-    # Order the paths alphabetically
-    paths.sort() # Now this contains the path to all RPis images included in rpis (arg)
-
-    # For each dt in datetimes, find the image path that == dt for each RPi. Put the paths in a df where each row is a dt and each column is a RPi
-    imgs_paths = pd.DataFrame(index=datetimes, columns=[os.path.basename(path)[:4] for path in paths])
-    for dt in datetimes:
-        for path in paths:
-            filename = "hive"+hive_nb+"_rpi"+path.split("/")[-1][3]+"_"+dt.strftime('%y%m%d-%H%M')
-            # Find the file in os.listdir(path) that contains the dt (or startswith(dt))
-            img_path = [os.path.join(path, f) for f in os.listdir(path) if filename in f]
-            if len(img_path) == 1:
-                imgs_paths.loc[dt, os.path.basename(path)[:4]] = img_path[0]
-            else:
-                imgs_paths.loc[dt, os.path.basename(path)[:4]] = None
-
-    # Check how many images are missing
-    print("Missing images before filtering: ", imgs_paths.isnull().sum().sum(), "out of", imgs_paths.shape[0]*imgs_paths.shape[1], "images.")
-
-    # Fill the gaps with the images from the previous dt
-    if images_fill_limit > 0:
-        imgs_paths_filtered = imgs_paths.ffill(limit=images_fill_limit,axis=0)
-    else:
-        imgs_paths_filtered = imgs_paths
-    # Check if there are still missing images, if so, raise an error
-    if imgs_paths_filtered.isnull().sum().sum() > 0:
-        raise ValueError(f"Still missing images, desipite filling the gaps with the previous images up to {images_fill_limit} images.")
-    
-    return imgs_paths_filtered
-
 # Function to access files and force download
 def preload_images(src_path):
     for root, dirs, files in os.walk(src_path):
@@ -343,7 +297,9 @@ class Hive():
         returns:
         - htr_content: dict containing the honey content for each heater for each rpi. The keys are the rpi numbers (0,1,2,3), followed by the heater number (h00 to h09).
         affects:
-        - sets self.htr_content
+        - sets self.htr_content, in percentages, for each heater in each rpi.
+        - sets self.frame_content, in percentages, for each heater in the upper and lower frame.
+        - sets self.frame_content_ml, in ml, for each heater in the upper and lower frame.
         '''
         if self.honey_masks is None:
             raise ValueError("Honey masks not loaded. Use loadHoneyMasks() to load the masks or generate them.")
@@ -377,11 +333,19 @@ class Hive():
             for htr in range(10):
                 frame_content[pos][f'h{htr:02d}'] = np.mean([self.htr_content[1][f'h{htr:02d}'], self.htr_content[3][f'h{htr:02d}']]) if pos == "upper" else np.mean([self.htr_content[2][f'h{htr:02d}'], self.htr_content[4][f'h{htr:02d}']])
         self.frame_content = frame_content
+        self.frame_content_ml = {}
+        for pos in ["upper", "lower"]:
+            self.frame_content_ml[pos] = {}
+            for htr in range(10):
+                self.frame_content_ml[pos][f'h{htr:02d}'] = self.frame_content[pos][f'h{htr:02d}'] * 2 # Convert to ml (assuming 100% is 200ml)
+        
         if verbose:
             print("Heater content:")
             print(self.htr_content)
             print("Frame content:")
             print(self.frame_content)
+            print("Frame content in ml:")
+            print(self.frame_content_ml)
         return htr_content
 
     def setCo2Pos(self, co2_pos:dict):
@@ -437,7 +401,7 @@ class Hive():
         mask=remove_small_patches(mask, min_size)
         return mask
     
-    def ilastikSegmentHoney(self, model_path:str, rpis:list[int]=[1,2,3,4]):
+    def ilastikSegmentHoney(self, model_path:str, rpis:list[int]=[1,2,3,4], verbose:bool=False):
         '''
         Uses the provided ilastik model to segment the honey in the images. Uses a tmp folder to store the cropped images but deletes them after processing.
         args:
@@ -462,9 +426,10 @@ class Hive():
 
         # Run ilastik on the temporary directory
         assert model_path.endswith(".ilp"), "Model path must end with .ilp"
-        print("Results folder: ", results_folder)
-
-        print(tmp_dir,model_path,results_folder)
+        if verbose:
+            print("Results folder: ", results_folder)
+            print(tmp_dir,model_path,results_folder)
+            
         run_ilastik(input_path = cropped_images_dir,
                     model_path = model_path,
                     result_base_path = results_folder,
