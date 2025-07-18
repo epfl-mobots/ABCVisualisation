@@ -172,7 +172,7 @@ def generateHtrDF(df:pd.DataFrame)->list:
 
     return upper_out, lower_out
 
-def add_transparent_image(background, foreground, x_offset:int=None, y_offset:int=None):
+def _add_transparent_image(background, foreground, x_offset:int=None, y_offset:int=None):
     '''
     Function adapted from https://stackoverflow.com/a/71701023.
     '''
@@ -602,7 +602,7 @@ class Hive():
                 # Add a 20px margin to the coordinates
                 coords = (coords[0]+20,coords[1]-20)
                 cv2.putText(overlay_rgb, f"{max_temp:.1f}", coords, cv2.FONT_HERSHEY_SIMPLEX, 4, (255, 0, 0, 255), 10, cv2.LINE_AA)
-            rgb_imgs[i]= add_transparent_image(bg, overlay_rgb, self.thermal_shifts[i][0], self.thermal_shifts[i][1])
+            rgb_imgs[i]= _add_transparent_image(bg, overlay_rgb, self.thermal_shifts[i][0], self.thermal_shifts[i][1])
         
         return rgb_imgs, min_temp
     
@@ -696,7 +696,7 @@ class Hive():
         # Overlay the honey masks on the images
         for i, img in enumerate(rgb_bg):
             if masks_rgba[i] is not None:
-                rgb_bg[i] = add_transparent_image(img, masks_rgba[i], self.thermal_shifts[i][0], self.thermal_shifts[i][1])
+                rgb_bg[i] = _add_transparent_image(img, masks_rgba[i], self.thermal_shifts[i][0], self.thermal_shifts[i][1])
 
         assembled_img = imageHiveOverview(rgb_bg, self.imgs_names, annotate_names)
         return assembled_img
