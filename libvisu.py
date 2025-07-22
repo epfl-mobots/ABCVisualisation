@@ -230,7 +230,7 @@ class Hive():
     base_thermal_shifts = [[(260,510),(260,500),(220,520),(220,420)], # Hive 1
                            [(260,510),(260,500),(190,440),(220,490)]] # Hive 2
 
-    def __init__(self, imgs:list, imgs_preprocessed:bool, imgs_names:list[str], upper:ThermalFrame = None, lower:ThermalFrame = None, metabolic:pd.DataFrame = None, htr_upper:pd.DataFrame = None, htr_lower:pd.DataFrame = None, hive_nb:int = None):
+    def __init__(self, imgs:list, imgs_preprocessed:bool, imgs_names:list[str], upper:ThermalFrame = None, lower:ThermalFrame = None, metabolic:pd.DataFrame = None, htr_upper:pd.DataFrame = None, htr_lower:pd.DataFrame = None, hive_nb:int = 0):
         '''
         Constructor for the Hive class.
         Parameters:
@@ -256,7 +256,9 @@ class Hive():
             self.pp_imgs = None
         self.imgs_names = imgs_names
         self.hive_nb = hive_nb
-        if self.hive_nb is not None:
+        self.name = f"h{self.hive_nb}_{self.imgs_names[0].split('_')[-1][:-3]}"  # Assuming all images have the same timestamp
+
+        if self.hive_nb != 0:
             self.setThermalShifts(Hive.base_thermal_shifts[self.hive_nb-1]) # Set the thermal shifts for the hive number
         else:
             self.setThermalShifts(Hive.base_thermal_shifts[0])
@@ -381,6 +383,7 @@ class Hive():
         '''
         Returns the images of the heaters for each RPi. The images are cropped to the size of the heaters.
         '''
+        # Check if self.pp_imgs is None are computed or not. Compute if not
         bee_arena_px = self.getBeeArena()
         bee_arenas_imgs = [self.pp_imgs[rpi][bee_arena_px[rpi][0][1]:bee_arena_px[rpi][1][1], bee_arena_px[rpi][0][0]:bee_arena_px[rpi][1][0]] for rpi in range(4)]
         return bee_arenas_imgs
@@ -410,8 +413,10 @@ class Hive():
         '''
         cropped_images = self.getHeaterImages()
         # Create a temporary directory to store the cropped images
-        tmp_dir = os.path.join(os.getcwd(), "tmp")
-        os.makedirs(tmp_dir, exist_ok=False)
+        dir_name = f"tmp_{self.name}"
+        tmp_dir = os.path.join(os.getcwd(), dir_name)
+        os.makedirs(tmp_dir, exist_ok=True)
+                
         cropped_images_dir = os.path.join(tmp_dir, "cropped_images/")
         results_folder = os.path.join(tmp_dir, "results/")
         os.makedirs(cropped_images_dir, exist_ok=True)
