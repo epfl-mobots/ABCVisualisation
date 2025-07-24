@@ -256,7 +256,13 @@ class Hive():
             self.pp_imgs = None
         self.imgs_names = imgs_names
         self.hive_nb = hive_nb
-        self.name = f"h{self.hive_nb}_{self.imgs_names[0].split('_')[-1][:-3]}"  # Assuming all images have the same timestamp
+        # Find the first image name that ends with Z
+        _name = next((name for name in self.imgs_names if name.endswith('Z')), None)
+        if _name is None:
+            raise ValueError("No image name ends with 'Z'. Please check the image names.")
+        
+
+        self.name = f"h{self.hive_nb}_{_name.split('_')[-1][:-3]}"  # Assuming all images have the same timestamp
 
         if self.hive_nb != 0:
             self.setThermalShifts(Hive.base_thermal_shifts[self.hive_nb-1]) # Set the thermal shifts for the hive number
@@ -326,21 +332,20 @@ class Hive():
         
         self.htr_content = htr_content
         frame_content = {}
+        frame_content_ml = {}
         for pos in ["upper", "lower"]:
             frame_content[pos] = {}
+            frame_content_ml[pos] = {}
             if pos == "upper" and (self.htr_content[1] == {} or self.htr_content[3] == {}):
                 continue
             if pos == "lower" and (self.htr_content[2] == {} or self.htr_content[4] == {}):
                 continue
             for htr in range(10):
                 frame_content[pos][f'h{htr:02d}'] = np.mean([self.htr_content[1][f'h{htr:02d}'], self.htr_content[3][f'h{htr:02d}']]) if pos == "upper" else np.mean([self.htr_content[2][f'h{htr:02d}'], self.htr_content[4][f'h{htr:02d}']])
+                frame_content_ml[pos][f'h{htr:02d}'] = frame_content[pos][f'h{htr:02d}'] * 2 # Convert to ml (assuming 100% is 200ml)
         self.frame_content = frame_content
-        self.frame_content_ml = {}
-        for pos in ["upper", "lower"]:
-            self.frame_content_ml[pos] = {}
-            for htr in range(10):
-                self.frame_content_ml[pos][f'h{htr:02d}'] = self.frame_content[pos][f'h{htr:02d}'] * 2 # Convert to ml (assuming 100% is 200ml)
-        
+        self.frame_content_ml = frame_content_ml
+
         if verbose:
             print("Heater content:")
             print(self.htr_content)
@@ -348,7 +353,8 @@ class Hive():
             print(self.frame_content)
             print("Frame content in ml:")
             print(self.frame_content_ml)
-        return htr_content
+        
+        return self.htr_content
 
     def setCo2Pos(self, co2_pos:dict):
         '''
@@ -389,8 +395,6 @@ class Hive():
         return bee_arenas_imgs
         
     def process_ilastik_mask(self, honey_mask, hive_num:int, rpi_num:int, min_size:int=3000,threshold:int =128):
-        honey_mask = honey_mask + 255
-        honey_mask = np.uint8(honey_mask)
         if hive_num == 1:
             if rpi_num == 2:
                 honey_mask[-30:,:] = 0            
@@ -472,6 +476,43 @@ class Hive():
 
         os.rmdir(tmp_dir)
 
+    def regionGrowHoney(self, rpis:list[int]=[1,2,3,4], gradient_threshold:int=4, value_threshold:int=160, min_size:int=700, verbose:bool=False):
+        '''
+        Uses the region growing algorithm to segment the honey in the images. Uses a tmp folder to store the cropped images but deletes them after processing.
+        args:
+        - gradient_threshold: int, threshold for the gradient to start the region growing algorithm
+        - value_threshold: int, threshold for the pixel value to start the region growing algorithm
+        - min_size: int, minimum size of the region to be considered as honey
+        - rpis: list of int, rpi cameras to process. Default is all ([1,2,3,4])
+        Sets (and overwrites) self.honey_masks.
+        '''
+        cropped_images = self.getHeaterImages()
+        masks = []
+        for i, img in enumerate(cropped_images):
+            if i+1 not in rpis:
+                masks.append(None)
+                continue
+            # Apply the region growing algorithm to the image
+            mask = region_growing(img, gradient_threshold=gradient_threshold, value_threshold=value_threshold, min_size=min_size, verbose=verbose)
+            masks.append(mask)
+
+        if verbose:
+            print(f"data type of mask 2: {masks[1].dtype}")
+            print(f"Max value of mask 2: {masks[1].max()}")
+            print(f"Min value of mask 2: {masks[1].min()}")
+        for i, mask in enumerate(masks):
+            if mask is None:
+                continue
+            # Convert the mask to a binary mask
+            mask = np.where(mask > 0, 255, 0).astype(np.uint8)
+            if verbose:
+                print(f"Mask for RPi {i+1} has shape: {mask.shape} and dtype: {mask.dtype}")
+            masks[i] = morph(mask, kernel_size=3,close_first=False)
+            masks[i] = remove_small_patches(masks[i], min_size=10000) # Remove small patches that are not honey
+            masks[i] = morph(masks[i], kernel_size=5, close_first=True)
+            masks[i] = remove_small_patches(masks[i], min_size=10000) # Remove small patches that are not honey
+
+        self.loadHoneyMasks(masks)
 
     def _co2_snapshot(self,rgb_imgs:list):
         min_size = 4
@@ -630,7 +671,7 @@ class Hive():
                 # Put the heater number on top right of the rectangle
                 cv2.putText(rgb_bg[i], htr, (self.htr_pos[i][htr][0][0]+mrg,self.htr_pos[i][htr][0][1]+10*mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
 
-    def snapshot(self,thermal_transparency:float=0.25,v_min:float=10,v_max:float=35,contours:list=[], annotate_names:bool=True,show_frame_border:bool=False):
+    def snapshot(self,thermal_transparency:float=0.25,v_min:float=10,v_max:float=35,contours:list=[], annotate_names:bool=True, show_frame_border:bool=False):
         '''
         Generates a global image with the 4 images of the hives with the timestamp on the pictures. It then adds the ThermalFrames ontop of the images.
         '''
@@ -660,7 +701,11 @@ class Hive():
                 rectangles = self.getBeeArena()
                 cv2.rectangle(img, rectangles[i][0], rectangles[i][1], (255, 0, 0), 10)
 
-        assembled_img = imageHiveOverview(rgb_bg, self.imgs_names, annotate_names)
+        if annotate_names:
+            assembled_img = imageHiveOverview(rgb_bg, self.imgs_names)
+        else:
+            assembled_img = imageHiveOverview(rgb_bg)
+
         # add ambient temperature on the image (min temp)
         ambient_t_text = f"Ambient: {min_temp:.1f} C"
         (text_width, text_height), _ = cv2.getTextSize(ambient_t_text, cv2.FONT_HERSHEY_SIMPLEX, 2, 3)
@@ -702,8 +747,10 @@ class Hive():
         for i, img in enumerate(rgb_bg):
             if masks_rgba[i] is not None:
                 rgb_bg[i] = _add_transparent_image(img, masks_rgba[i], self.thermal_shifts[i][0], self.thermal_shifts[i][1])
-
-        assembled_img = imageHiveOverview(rgb_bg, self.imgs_names, annotate_names)
+        if annotate_names:
+            assembled_img = imageHiveOverview(rgb_bg, self.imgs_names)
+        else:
+            assembled_img = imageHiveOverview(rgb_bg)
         return assembled_img
 
     def loadHoneyMasks(self, masks:list):
@@ -714,6 +761,11 @@ class Hive():
         assert len(masks) == 4, "Masks must contain 4 images"
         # make sure at least one mask is not None
         assert any(mask is not None for mask in masks), "At least one mask must be provided"
+        # If mask is binary, convert it to uint8
+        for i, mask in enumerate(masks):
+            if mask is not None and np.max(mask) <= 1:
+                    masks[i] = (mask * 255).astype(np.uint8)
+                    
         x,y = ThermalFrame.x_pcb*self.resize_factor, ThermalFrame.y_pcb*self.resize_factor
         for i, mask in enumerate(masks):
             if mask is not None:     
