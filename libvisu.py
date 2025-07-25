@@ -493,7 +493,8 @@ class Hive():
         - gradient_threshold: int, threshold for the gradient to start the region growing algorithm
         - value_threshold: int, threshold for the pixel value to start the region growing algorithm
         - min_size: int, minimum size of the region to be considered as honey
-        - rpis: list of int, rpi cameras to process. Default is all ([1,2,3,4])
+        - rpis: list of int, rpi cameras to process. The rpis not included will be given a 0-mask (no honey anywhere). Default is all ([1,2,3,4]).
+        
         Sets (and overwrites) self.honey_masks.
         '''
         cropped_images = self.getHeaterImages()
@@ -506,10 +507,12 @@ class Hive():
             mask = region_growing(img, gradient_threshold=gradient_threshold, value_threshold=value_threshold, min_size=min_size, verbose=verbose)
             masks.append(mask)
 
+        empty_mask = np.zeros_like(cropped_images[0], dtype=np.uint8)  # Create an empty mask for rpis not processed
         for i, mask in enumerate(masks):
             if mask is None:
-                continue
-            masks[i] = self._processRegionGrownMask(mask)
+                masks[i] = empty_mask
+            else:
+                masks[i] = self._processRegionGrownMask(mask)
 
         self.loadHoneyMasks(masks)
 
@@ -773,7 +776,22 @@ class Hive():
                 assert mask.dtype == np.uint8, f"Mask {i} has a dtype of {mask.dtype} instead of np.uint8"
             
         self.honey_masks = masks
-        
+
+    def correctHoneyMasks(self, corrections:list):
+        '''
+        Corrects the honey masks by applying a logical AND operation between the masks and the corrections.
+        args:
+        - corrections: list of 4 images, corrections to apply to the honey masks. 
+                        The images should be binary and have the same size as the honey masks. 
+                        Use None for RPi images that should not be corrected.
+        '''
+        assert len(corrections) == len(self.honey_masks), "You must provide a correction for each RPi image. Use None for RPi images that do not need correction."
+        for i, mask in enumerate(self.honey_masks):
+            if mask is not None and corrections[i] is not None:
+                self.honey_masks[i] = cv2.bitwise_and(mask, corrections[i])
+            elif corrections[i] is not None:
+                raise ValueError(f"Correction for RPi {i+1} is not None but the mask is None. Please check your inputs.")
+
     def compute_pixel_shifts(self):
         '''
         Computes the pixel shifts between the thermal and the imaging data, for every image of the hive.
