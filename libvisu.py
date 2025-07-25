@@ -3,7 +3,7 @@ import pandas as pd
 import cv2, os, h5py, sys
 from io import StringIO
 sys.path.append(os.path.abspath("ABCVisualisation"))
-from ABCImaging.VideoManagment.videolib import *
+from ABCImaging.VideoManagment.videolib import imageHiveOverview
 from ABCImaging.Preprocessing.preproc import beautify_frame
 from ABCImaging.CellContentIdentification.cellcontent import *
 from ABCThermalPlots.thermalutil import *
@@ -477,7 +477,16 @@ class Hive():
 
         os.rmdir(tmp_dir)
 
-    def regionGrowHoney(self, rpis:list[int]=[1,2,3,4], gradient_threshold:int=4, value_threshold:int=160, min_size:int=700, verbose:bool=False):
+    def _processRegionGrownMask(self, mask):
+        # Convert the mask to a binary mask
+        mask = np.where(mask > 0, 255, 0).astype(np.uint8)
+        mask = morph(mask, kernel_size=3,close_first=False)
+        mask = remove_small_patches(mask, min_size=10000) # Remove small patches that are not honey
+        mask = morph(mask, kernel_size=5, close_first=True)
+        mask = remove_small_patches(mask, min_size=10000) # Remove small patches that are not honey
+        return mask
+
+    def regionGrowSegmentHoney(self, rpis:list[int]=[1,2,3,4], gradient_threshold:int=4, value_threshold:int=160, min_size:int=700, verbose:bool=False):
         '''
         Uses the region growing algorithm to segment the honey in the images. Uses a tmp folder to store the cropped images but deletes them after processing.
         args:
@@ -497,21 +506,10 @@ class Hive():
             mask = region_growing(img, gradient_threshold=gradient_threshold, value_threshold=value_threshold, min_size=min_size, verbose=verbose)
             masks.append(mask)
 
-        if verbose:
-            print(f"data type of mask 2: {masks[1].dtype}")
-            print(f"Max value of mask 2: {masks[1].max()}")
-            print(f"Min value of mask 2: {masks[1].min()}")
         for i, mask in enumerate(masks):
             if mask is None:
                 continue
-            # Convert the mask to a binary mask
-            mask = np.where(mask > 0, 255, 0).astype(np.uint8)
-            if verbose:
-                print(f"Mask for RPi {i+1} has shape: {mask.shape} and dtype: {mask.dtype}")
-            masks[i] = morph(mask, kernel_size=3,close_first=False)
-            masks[i] = remove_small_patches(masks[i], min_size=10000) # Remove small patches that are not honey
-            masks[i] = morph(masks[i], kernel_size=5, close_first=True)
-            masks[i] = remove_small_patches(masks[i], min_size=10000) # Remove small patches that are not honey
+            masks[i] = self._processRegionGrownMask(mask)
 
         self.loadHoneyMasks(masks)
 
