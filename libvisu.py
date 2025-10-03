@@ -7,6 +7,7 @@ from ABCImaging.VideoManagment.videolib import imageHiveOverview
 from ABCImaging.Preprocessing.preproc import beautify_frame
 from ABCImaging.CellContentIdentification.cellcontent import *
 from ABCThermalPlots.thermalutil import *
+from InfluxDBInterface.libdb import readInfluxCSV
 from PIL import Image  # Or OpenCV if preferred
 from matplotlib.path import Path
 from EasIlastik import * # Just a simple package that runs iLastik in headless mode
@@ -25,101 +26,22 @@ def preload_images(src_path):
                     print(f"Preloaded: {file_path}")
                 except Exception as e:
                     print(f"Failed to preload {file_path}: {e}")
-
-def prepareData(csv_path, section_prefix="#"):
-    """
-    Reads a CSV file split into multiple sections separated by lines starting with a specific prefix.
-    Each section begins with `num_header_lines` lines starting with `section_prefix`, 
-    and the first line after those is treated as column names.
-
-    Args:
-        file_path (str): Path to the CSV file.
-        section_prefix (str): Prefix marking the start of a header line (e.g., "#").
-        num_header_lines (int): Number of lines starting with `section_prefix` to mark the end of a section delimiter.
-
-    Returns:
-        all_data (pd.DataFrame): DataFrame containing all data from the CSV file.
-    """
-    with open(csv_path, 'r') as file:
-        lines = file.readlines()
     
-    # Variables to store sections
-    sections = {}
-    current_section = 0
-    current_data = []
-    column_names = None
-    header_line_count = 0
-    
-    for line in lines:
-        line = line.strip()
-        
-        if line.startswith(section_prefix):  # Count header lines starting with `#`
-            header_line_count += 1
-        elif header_line_count > 0:  # Just completed section header
-            # Save the previous section
-            if current_data!=[]:
-                csv_data = '\n'.join(current_data)
-                sections[current_section] = pd.read_csv(StringIO(csv_data), names=column_names)
-            
-            # Start a new section
-            # The current line contains the column names as it just succeeded the header lines
-            column_names = line.split(",")  # Use the delimiter to get the column names
-            header_line_count = 0  # Mark header handling complete
-            current_section = current_section+1  # Increment section name
-            current_data = []  # Reset the data list
-        elif column_names is None:
-            continue  # Skip any lines before column names are defined
-        else:
-            # Add data lines to the current section
-            current_data.append(line)
-    
-    # Save the last section
-    if current_data:
-        csv_data = '\n'.join(current_data)
-        sections[current_section] = pd.read_csv(StringIO(csv_data), names=column_names)
-
-    all_data = pd.concat(sections.values(), ignore_index=True, sort=False)
-    all_data.drop(columns=['result', '_start', '_stop', 'table', 'serial_id', 'geo_loc', 'phys_loc'], inplace=True) # Remove unnecessary columns
-    all_data['_time'] = all_data['_time'].str.replace(r'\.\d+', '', regex=True) # Remove milliseconds
-    all_data['_time'] = pd.to_datetime(all_data['_time'], format="%Y-%m-%d %H:%M:%S%z")
-
-    # Set the time as index
-    all_data = all_data.set_index('_time',drop=False)
-    # Order by time
-    all_data = all_data.sort_index()
-    return all_data
-    
-def extractData(df:pd.DataFrame, hive:int, timestamps:pd.DatetimeIndex):
+def extractData(csv_path, hive:int, timestamps:pd.DatetimeIndex, section_prefix="#", verbose:bool=False)->pd.DataFrame:
     '''
-    Extracts data from a dataframe for a specific hive and specific timestamps.
+    Extracts data from a csv file for a specific hive at specific timestamps.
     '''
+    if verbose:
+        print(timestamps)
+    df = readInfluxCSV(csv_path, section_prefix)
+    if verbose:
+        print(df)
+        print(df.index.dtype)
     relevant_data = df[(df['hive_num'] == hive) & (df.index.isin(timestamps))]
     if relevant_data.empty:
-        print(f"No data found between for hive {hive} at the timestamps provided!")
+        print(f"No data found for hive {hive} at the timestamps provided!")
         return None
     return relevant_data
-
-def generateThermalDF(df:pd.DataFrame, index:pd.DatetimeIndex)->pd.DataFrame:
-    '''
-    Generates a panda df for temperatures that is friendly with the thermalutil.py libray. This means every column is a t00-t64 and a line is a timestamp.
-    Parameters:
-    - df: pd.DataFrame containing the temperatures in an influxdb format.
-    '''
-    upper = pd.DataFrame(index=index)
-    lower = pd.DataFrame(index=index)
-    df_upper = df[(df['_measurement'] == 'tmp') & (df['inhive_loc'] == 'upper')]
-    df_lower = df[(df['_measurement'] == 'tmp') & (df['inhive_loc'] == 'lower')]
-
-    for i in range(64):
-        column_name = f't{i:02d}'
-        # For every index of thermal_df, get the temperature which has the same datetime in df
-        upper[column_name] = df_upper[df_upper['_field'] == column_name]['_value']
-        lower[column_name] = df_lower[df_lower['_field'] == column_name]['_value']
-
-    # Set the right column names
-    upper.columns = [f't{i:02d}' for i in range(64)]
-    lower.columns = [f't{i:02d}' for i in range(64)]
-    return upper, lower
 
 def generateMetabolicDF(df:pd.DataFrame)->pd.DataFrame:
     '''
@@ -230,10 +152,11 @@ class Hive():
     base_thermal_shifts = [[(260,510),(260,500),(220,520),(220,420)], # Hive 1
                            [(260,510),(260,500),(190,440),(220,490)]] # Hive 2
 
-    def __init__(self, imgs:list, imgs_preprocessed:bool, imgs_names:list[str], upper:ThermalFrame = None, lower:ThermalFrame = None, metabolic:pd.DataFrame = None, htr_upper:pd.DataFrame = None, htr_lower:pd.DataFrame = None, hive_nb:int = 0):
+    def __init__(self, ts:pd.Timestamp,imgs:list, imgs_preprocessed:bool, imgs_names:list[str], upper:ThermalFrame = None, lower:ThermalFrame = None, metabolic:pd.DataFrame = None, htr_upper:pd.DataFrame = None, htr_lower:pd.DataFrame = None, hive_nb:int = 0):
         '''
         Constructor for the Hive class.
         Parameters:
+        - ts: pd.Timestamp, datetime of the data
         - imgs: list of 4 images of the hive (hxr1, hxr2, hxr3, hxr4)
         - imgs_preprocessed: bool, whether the images have been preprocessed already or not
         - imgs_names: list of 4 strings, names of the images
@@ -249,6 +172,7 @@ class Hive():
         if metabolic is not None and len(metabolic) != 4:
             raise ValueError("metabolic must contain 4 values")
         
+        self.ts = ts
         self.imgs = imgs
         if imgs_preprocessed:
             self.pp_imgs = imgs
@@ -542,10 +466,10 @@ class Hive():
                     co2_pos[co2] = (co2_pos[co2][0] - int(800*(size-min_size)/(max_size-min_size)), co2_pos[co2][1])
                 cv2.putText(rgb_imgs[i], f"{co2_value}", co2_pos[co2], cv2.FONT_HERSHEY_SIMPLEX, size, color, 20, cv2.LINE_AA)
 
-    def _tmp_snapshot(self,rgb_imgs:list, v_min, v_max, thermal_transparency, contours):
+    def _tmp_snapshot(self, rgb_imgs:list, v_min, v_max, thermal_transparency, contours:list, annotate_contours:bool):
         overlays = []
         # Store the max temp coordinates and value
-        max_temp = 0
+        max_temp = -100
         min_temp = 200
         max_temp_coords = (0,0,0) # First coordinate is the frame, then x and y
         for i,tf in enumerate([self.upper_tf, self.lower_tf]):
@@ -568,30 +492,28 @@ class Hive():
 
         fig, ax = plt.subplots()  # Create a dummy figure to prevent automatic plotting
         _contours = [ax.contour(tf.thermal_field, levels=contours, colors='none') for tf in [self.upper_tf, self.lower_tf]] # Only compute, no color
+        if annotate_contours:
+            labels = [ax.clabel(cs, inline=True, fontsize=8, fmt=lambda x: f"{x:.0f} C") for cs in _contours]
+        else:
+            labels = []
+
         plt.close(fig)  # Close the figure to prevent display
 
         # Extract paths from the contour
-        paths = [
-            [
-                collection.get_paths()[0]
-                for collection in contour.collections
-                if collection.get_paths()
-            ]
-            for contour in _contours
-        ]
+        paths = [cs.get_paths() for cs in _contours]
 
         # Create a blank canvas for OpenCV drawing
         canvas = [np.zeros_like(overlay[:,:,0]) for overlay in overlays]
 
         tf_shape = self.upper_tf.thermal_field.shape
         # Draw the contours onto the canvas
-        for i, path in enumerate(paths): # For each frame
-            if path == []:
-                continue
-            for p in path: # For each path for a given frame
+        for i, frame_paths in enumerate(paths): # For each frame
+            for j, path in enumerate(frame_paths): # For each level in the frame
+                if path.vertices.size == 0:
+                    continue
                 # Get the vertices and codes
-                vertices = p.vertices
-                codes = p.codes
+                vertices = path.vertices
+                codes = path.codes
 
                 # Initialize a list to store points for each disjoint segment
                 segment_points = []
@@ -650,6 +572,19 @@ class Hive():
                 # Add a 20px margin to the coordinates
                 coords = (coords[0]+20,coords[1]-20)
                 cv2.putText(overlay_rgb, f"{max_temp:.1f}", coords, cv2.FONT_HERSHEY_SIMPLEX, 4, (255, 0, 0, 255), 10, cv2.LINE_AA)
+            
+            if labels != []:
+                # Add the corresponding label to the contours
+                img_labels = labels[i if i<2 else i-2]
+                for txt in img_labels:
+                    if txt.get_text() == '':
+                        continue
+                    x, y = txt.get_position()
+                    x = int(x * overlay_rgb.shape[1] / tf_shape[1])
+                    y = int(y * overlay_rgb.shape[0] / tf_shape[0])
+                    if i >= 2:
+                        x = overlay_rgb.shape[1] - x
+                    cv2.putText(overlay_rgb, txt.get_text(), (x, y), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0, 255), 3, cv2.LINE_AA)
             rgb_imgs[i]= _add_transparent_image(bg, overlay_rgb, self.thermal_shifts[i][0], self.thermal_shifts[i][1])
         
         return rgb_imgs, min_temp
@@ -673,7 +608,7 @@ class Hive():
                 # Put the heater number on top right of the rectangle
                 cv2.putText(rgb_bg[i], htr, (self.htr_pos[i][htr][0][0]+mrg,self.htr_pos[i][htr][0][1]+10*mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
 
-    def snapshot(self,thermal_transparency:float=0.25,v_min:float=10,v_max:float=35,contours:list=[], annotate_names:bool=True, show_frame_border:bool=False):
+    def snapshot(self, thermal_transparency:float=0.25, v_min:float=10, v_max:float=35, contours:list=[], annotate_contours:bool=False, annotate_names:bool=True, show_frame_border:bool=False):
         '''
         Generates a global image with the 4 images of the hives with the timestamp on the pictures. It then adds the ThermalFrames ontop of the images.
         '''
@@ -688,7 +623,7 @@ class Hive():
         
         min_temp = -273
         if self.upper_tf is not None and self.lower_tf is not None:
-            rgb_bg, min_temp = self._tmp_snapshot(rgb_bg,v_min,v_max,thermal_transparency,contours) # Adds thermal field and isotherms to the images
+            rgb_bg, min_temp = self._tmp_snapshot(rgb_bg,v_min,v_max,thermal_transparency,contours, annotate_contours=annotate_contours) # Adds thermal field and isotherms to the images
 
         if self.htr_upper is not None and self.htr_lower is not None:
             self._htr_snapshot(rgb_bg) # Adds heaters data on the images
@@ -704,9 +639,9 @@ class Hive():
                 cv2.rectangle(img, rectangles[i][0], rectangles[i][1], (255, 0, 0), 10)
 
         if annotate_names:
-            assembled_img = imageHiveOverview(rgb_bg, self.imgs_names)
+            assembled_img = imageHiveOverview(rgb_bg, self.imgs_names, self.ts)
         else:
-            assembled_img = imageHiveOverview(rgb_bg)
+            assembled_img = imageHiveOverview(rgb_bg, dt=self.ts)
 
         # add ambient temperature on the image (min temp)
         ambient_t_text = f"Ambient: {min_temp:.1f} C"
@@ -750,9 +685,9 @@ class Hive():
             if masks_rgba[i] is not None:
                 rgb_bg[i] = _add_transparent_image(img, masks_rgba[i], self.thermal_shifts[i][0], self.thermal_shifts[i][1])
         if annotate_names:
-            assembled_img = imageHiveOverview(rgb_bg, self.imgs_names)
+            assembled_img = imageHiveOverview(rgb_bg, self.imgs_names, self.ts)
         else:
-            assembled_img = imageHiveOverview(rgb_bg)
+            assembled_img = imageHiveOverview(rgb_bg, dt=self.ts)
         return assembled_img
 
     def loadHoneyMasks(self, masks:list):
