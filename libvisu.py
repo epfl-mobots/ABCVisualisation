@@ -136,6 +136,60 @@ def _add_transparent_image(background, foreground, x_offset:int=None, y_offset:i
 
     return background
 
+def putTextRightJustify(
+    img,
+    text:str,
+    bottom_right_coords:tuple,
+    font=cv2.FONT_HERSHEY_SIMPLEX,
+    font_scale=1,
+    color=(0, 0, 0),
+    thickness=2,
+    line_type=cv2.LINE_AA,
+    vertical_align="bottom"  # can be "bottom", "center", or "top"
+):
+    """
+    Draws right-justified text on an OpenCV image.
+
+    Parameters
+    ----------
+    img : np.ndarray
+        Image on which to draw text.
+    text : str
+        Text to draw.
+    bottom_right : tuple(int, int)
+        (x, y) coordinates of the bottom-right reference point.
+    font : int
+        OpenCV font face.
+    font_scale : float
+        Font scale factor.
+    color : tuple(int, int, int)
+        Text color in BGR.
+    thickness : int
+        Thickness of the text stroke.
+    line_type : int
+        Type of the line (e.g. cv2.LINE_AA).
+    vertical_align : str
+        "bottom", "center", or "top" vertical alignment relative to the reference point.
+    """
+
+    # Measure text size
+    (text_width, text_height), baseline = cv2.getTextSize(text, font, font_scale, thickness)
+
+    x, y = bottom_right_coords
+
+    # Right-justify: shift left by the text width
+    x -= text_width
+
+    # Adjust for vertical alignment
+    if vertical_align == "bottom":
+        y -= baseline
+    elif vertical_align == "center":
+        y += text_height // 2 - baseline - 5
+    elif vertical_align == "top":
+        y += text_height - baseline
+
+    # Draw the text
+    cv2.putText(img, text, (x, y), font, font_scale, color, thickness, line_type)
 
 class Hive():
     '''
@@ -604,7 +658,10 @@ class Hive():
                 mrg = 10 # Just a small padding around the text
 
                 cv2.rectangle(rgb_bg[i], self.htr_pos[i][htr][0], self.htr_pos[i][htr][1], color, width)
-                cv2.putText(rgb_bg[i], f"{int(pwm)}           {obj:.1f}", (self.htr_pos[i][htr][0][0]+mrg,self.htr_pos[i][htr][1][1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
+                # Put pwm bottom left
+                cv2.putText(rgb_bg[i], f"{int(pwm)}", (self.htr_pos[i][htr][0][0]+mrg,self.htr_pos[i][htr][1][1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
+                # Put obj bottom right
+                putTextRightJustify(rgb_bg[i], f"{int(obj)}", (self.htr_pos[i][htr][1][0]-mrg,self.htr_pos[i][htr][1][1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA, vertical_align="center")
                 # Put the heater number on top right of the rectangle
                 cv2.putText(rgb_bg[i], htr, (self.htr_pos[i][htr][0][0]+mrg,self.htr_pos[i][htr][0][1]+10*mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
 
