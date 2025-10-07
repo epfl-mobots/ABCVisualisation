@@ -94,10 +94,16 @@ def generateHtrDF(df:pd.DataFrame)->list:
 
     return upper_out, lower_out
 
-def _add_transparent_image(background, foreground, x_offset:int=None, y_offset:int=None):
+def _add_transparent_image(background, foreground, fg_origin:str='top-left', x_offset:int=None, y_offset:int=None):
     '''
     Function adapted from https://stackoverflow.com/a/71701023.
+    Background is assumed to have its origin at the top-left corner.
     '''
+    assert fg_origin in ['top-left', 'bottom-left'], f'fg_origin must be "top-left" or "bottom-left". found:{fg_origin}'
+    if fg_origin == 'bottom-left':
+        new_fg = cv2.flip(foreground, 0)  # Flip vertically
+        return _add_transparent_image(background, new_fg, fg_origin='top-left', x_offset=x_offset, y_offset=y_offset)
+
     bg_h, bg_w, bg_channels = background.shape
     fg_h, fg_w, fg_channels = foreground.shape
 
@@ -527,13 +533,11 @@ class Hive():
         min_temp = 200
         max_temp_coords = (0,0,0) # First coordinate is the frame, then x and y
         for i,tf in enumerate([self.upper_tf, self.lower_tf]):
-            max_temp_tf = np.max(tf.thermal_field)
-            min_temp_tf = np.min(tf.thermal_field)
-            if min_temp_tf < min_temp:
-                min_temp = min_temp_tf
-            if max_temp_tf > max_temp:
-                max_temp = max_temp_tf
-                max_temp_coords = (i,tf.thermal_field.argmax() % tf.thermal_field.shape[1], tf.thermal_field.argmax() // tf.thermal_field.shape[1])
+            if tf.min_temp < min_temp:
+                min_temp = tf.min_temp
+            if tf.max_temp > max_temp:
+                max_temp = tf.max_temp
+                max_temp_coords = (i,)+ tf.get_max_temp_pos(origin='upper')
             therm_field_norm = (tf.thermal_field - v_min) / (v_max - v_min)
             # Apply matplotlib colormap (e.g., 'bwr')
             colormap = plt.colormaps['bwr']
@@ -562,7 +566,7 @@ class Hive():
         tf_shape = self.upper_tf.thermal_field.shape
         # Draw the contours onto the canvas
         for i, frame_paths in enumerate(paths): # For each frame
-            for j, path in enumerate(frame_paths): # For each level in the frame
+            for path in frame_paths: # For each level in the frame
                 if path.vertices.size == 0:
                     continue
                 # Get the vertices and codes
@@ -639,7 +643,7 @@ class Hive():
                     if i >= 2:
                         x = overlay_rgb.shape[1] - x
                     cv2.putText(overlay_rgb, txt.get_text(), (x, y), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0, 255), 3, cv2.LINE_AA)
-            rgb_imgs[i]= _add_transparent_image(bg, overlay_rgb, self.thermal_shifts[i][0], self.thermal_shifts[i][1])
+            rgb_imgs[i]= _add_transparent_image(bg, overlay_rgb, x_offset=self.thermal_shifts[i][0], y_offset=self.thermal_shifts[i][1])
         
         return rgb_imgs, min_temp
     
@@ -740,7 +744,7 @@ class Hive():
         # Overlay the honey masks on the images
         for i, img in enumerate(rgb_bg):
             if masks_rgba[i] is not None:
-                rgb_bg[i] = _add_transparent_image(img, masks_rgba[i], self.thermal_shifts[i][0], self.thermal_shifts[i][1])
+                rgb_bg[i] = _add_transparent_image(img, masks_rgba[i], x_offset=self.thermal_shifts[i][0], y_offset=self.thermal_shifts[i][1])
         if annotate_names:
             assembled_img = imageHiveOverview(rgb_bg, self.imgs_names, self.ts)
         else:
