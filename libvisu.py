@@ -234,7 +234,7 @@ class Hive():
             raise ValueError("metabolic must contain 4 values")
         
         self.ts = ts
-        if hive_nb in [1, 2, 3]: # Those are valid hive numbers
+        if hive_nb!=0:
             self.valid = valid_ts(ts, hive_nb, recovery_time=120) # We consider 120' for ABCVisu hives
         else:
             self.valid = True # We assume the data is valid if hive number is not known
