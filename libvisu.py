@@ -6,6 +6,7 @@ sys.path.append(os.path.abspath("ABCVisualisation"))
 from ABCImaging.VideoManagment.videolib import imageHiveOverview
 from ABCImaging.Preprocessing.preproc import beautify_frame
 from ABCImaging.CellContentIdentification.cellcontent import *
+from ABCImaging.HiveOpenings.libOpenings import valid_ts
 from ABCThermalPlots.thermalutil import *
 from InfluxDBInterface.libdb import readInfluxCSV
 from PIL import Image  # Or OpenCV if preferred
@@ -212,7 +213,7 @@ class Hive():
     base_thermal_shifts = [[(260,510),(260,500),(220,520),(220,420)], # Hive 1
                            [(260,510),(260,500),(190,440),(220,490)]] # Hive 2
 
-    def __init__(self, ts:pd.Timestamp,imgs:list, imgs_preprocessed:bool, imgs_names:list[str], upper:ThermalFrame = None, lower:ThermalFrame = None, metabolic:pd.DataFrame = None, htr_upper:pd.DataFrame = None, htr_lower:pd.DataFrame = None, hive_nb:int = 0):
+    def __init__(self, ts:pd.Timestamp, imgs:list, imgs_preprocessed:bool, imgs_names:list[str], upper:ThermalFrame = None, lower:ThermalFrame = None, metabolic:pd.DataFrame = None, htr_upper:pd.DataFrame = None, htr_lower:pd.DataFrame = None, hive_nb:int = 0):
         '''
         Constructor for the Hive class.
         Parameters:
@@ -233,6 +234,11 @@ class Hive():
             raise ValueError("metabolic must contain 4 values")
         
         self.ts = ts
+        if hive_nb in [1, 2, 3]: # Those are valid hive numbers
+            self.valid = valid_ts(ts, hive_nb, recovery_time=120) # We consider 120' for ABCVisu hives
+        else:
+            self.valid = True # We assume the data is valid if hive number is not known
+
         self.imgs = imgs
         if imgs_preprocessed:
             self.pp_imgs = imgs
@@ -700,9 +706,9 @@ class Hive():
                 cv2.rectangle(img, rectangles[i][0], rectangles[i][1], (255, 0, 0), 10)
 
         if annotate_names:
-            assembled_img = imageHiveOverview(rgb_bg, self.imgs_names, self.ts)
+            assembled_img = imageHiveOverview(rgb_bg, rgb=True, img_names=self.imgs_names, dt=self.ts, valid=self.valid)
         else:
-            assembled_img = imageHiveOverview(rgb_bg, dt=self.ts)
+            assembled_img = imageHiveOverview(rgb_bg, rgb=True, dt=self.ts, valid=self.valid)
 
         # add ambient temperature on the image (min temp)
         ambient_t_text = f"Ambient: {min_temp:.1f} C"
@@ -746,9 +752,9 @@ class Hive():
             if masks_rgba[i] is not None:
                 rgb_bg[i] = _add_transparent_image(img, masks_rgba[i], x_offset=self.thermal_shifts[i][0], y_offset=self.thermal_shifts[i][1])
         if annotate_names:
-            assembled_img = imageHiveOverview(rgb_bg, self.imgs_names, self.ts)
+            assembled_img = imageHiveOverview(rgb_bg, self.imgs_names, self.ts, self.valid)
         else:
-            assembled_img = imageHiveOverview(rgb_bg, dt=self.ts)
+            assembled_img = imageHiveOverview(rgb_bg, dt=self.ts, valid=self.valid)
         return assembled_img
 
     def loadHoneyMasks(self, masks:list):
