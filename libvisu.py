@@ -246,13 +246,7 @@ class Hive():
             self.pp_imgs = None
         self.imgs_names = imgs_names
         self.hive_nb = hive_nb
-        # Find the first image name that ends with Z
-        _name = next((name for name in self.imgs_names if name.endswith('Z')), None)
-        if _name is None:
-            raise ValueError("No image name ends with 'Z'. Please check the image names.")
-        
-
-        self.name = f"h{self.hive_nb}_{_name.split('_')[-1][:-3]}"  # Assuming all images have the same timestamp
+        self.name = f"h{self.hive_nb}_{ts.strftime('%y%m%d-%H%M%Z')}"
 
         if self.hive_nb != 0:
             self.setThermalShifts(Hive.base_thermal_shifts[self.hive_nb-1]) # Set the thermal shifts for the hive number
