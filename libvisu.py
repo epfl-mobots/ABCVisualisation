@@ -518,6 +518,8 @@ class Hive():
             for co2 in co2_showed:
                 # Compute the size of the text based on the metabolic measure. Put max_size at 30000 and min_size at 300, linearly.
                 # First clip the values to be between 360 and 30000
+                if self.metabolic[co2] is None or np.isnan(self.metabolic[co2]):
+                    continue
                 co2_value = int(np.clip(self.metabolic[co2],360,30000))
                 color = (255 * (co2_value - 360) / (30000 - 360),0,0)
                 size = min_size + (max_size - min_size) * (co2_value - 360) / (30000 - 360)
