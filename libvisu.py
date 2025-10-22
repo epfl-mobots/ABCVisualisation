@@ -428,7 +428,7 @@ class Hive():
                     result_base_path = results_folder,
                     export_source = "Probabilities",
                     output_format = "hdf5",
-                    verbose= verbose)
+                    verbose = verbose)
         
         result_files = [f for f in os.listdir(results_folder) if f.endswith(".h5")]
         assert len(result_files) == len(rpis), "The number of result files does not match the number of requested processed images."
