@@ -748,9 +748,9 @@ class Hive():
             if masks_rgba[i] is not None:
                 rgb_bg[i] = _add_transparent_image(img, masks_rgba[i], x_offset=self.thermal_shifts[i][0], y_offset=self.thermal_shifts[i][1])
         if annotate_names:
-            assembled_img = imageHiveOverview(rgb_bg, self.imgs_names, self.ts, self.valid)
+            assembled_img = imageHiveOverview(rgb_bg, rgb=True, img_names=self.imgs_names, dt=self.ts, valid=self.valid)
         else:
-            assembled_img = imageHiveOverview(rgb_bg, dt=self.ts, valid=self.valid)
+            assembled_img = imageHiveOverview(rgb_bg, rgb=True, dt=self.ts, valid=self.valid)
         return assembled_img
 
     def loadHoneyMasks(self, masks:list):
