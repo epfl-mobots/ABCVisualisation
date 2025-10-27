@@ -100,6 +100,8 @@ def _add_transparent_image(background, foreground, fg_origin:str='top-left', x_o
     Function adapted from https://stackoverflow.com/a/71701023.
     Background is assumed to have its origin at the top-left corner.
     '''
+    if foreground is None:
+        return background
     assert fg_origin in ['top-left', 'bottom-left'], f'fg_origin must be "top-left" or "bottom-left". found:{fg_origin}'
     if fg_origin == 'bottom-left':
         new_fg = cv2.flip(foreground, 0)  # Flip vertically
@@ -529,45 +531,54 @@ class Hive():
                 cv2.putText(rgb_imgs[i], f"{co2_value}", co2_pos[co2], cv2.FONT_HERSHEY_SIMPLEX, size, color, 20, cv2.LINE_AA)
 
     def _tmp_snapshot(self, rgb_imgs:list, v_min, v_max, thermal_transparency, contours:list, annotate_contours:bool):
-        overlays = []
+        overlays = [None, None]
         # Store the max temp coordinates and value
         max_temp = -100
         min_temp = 200
         max_temp_coords = (0,0,0) # First coordinate is the frame, then x and y
-        for i,tf in enumerate([self.upper_tf, self.lower_tf]):
-            if tf.min_temp < min_temp:
-                min_temp = tf.min_temp
-            if tf.max_temp > max_temp:
-                max_temp = tf.max_temp
-                max_temp_coords = (i,)+ tf.get_max_temp_pos(origin='upper')
-            therm_field_norm = (tf.thermal_field - v_min) / (v_max - v_min)
-            # Apply matplotlib colormap (e.g., 'bwr')
-            colormap = plt.colormaps['bwr']
-            overlay_colored = colormap(therm_field_norm)  # Returns RGBA values in [0, 1]
-            # Scale to [0, 255] for OpenCV compatibility
-            overlay_rgb = (overlay_colored * 255).astype(np.uint8)
-            overlay_rgb[:,:,3] = int(255*thermal_transparency)
-            overlay_rgb = cv2.resize(overlay_rgb, (int(overlay_rgb.shape[1] * Hive.resize_factor), int(overlay_rgb.shape[0] * Hive.resize_factor)), interpolation=cv2.INTER_NEAREST)
-            overlays.append(overlay_rgb)
+        for i, tf in enumerate([self.upper_tf, self.lower_tf]):
+            if tf is not None:
+                if tf.min_temp < min_temp:
+                    min_temp = tf.min_temp
+                if tf.max_temp > max_temp:
+                    max_temp = tf.max_temp
+                    max_temp_coords = (i,)+ tf.get_max_temp_pos(origin='upper')
+                therm_field_norm = (tf.thermal_field - v_min) / (v_max - v_min)
+                # Apply matplotlib colormap (e.g., 'bwr')
+                colormap = plt.colormaps['bwr']
+                overlay_colored = colormap(therm_field_norm)  # Returns RGBA values in [0, 1]
+                # Scale to [0, 255] for OpenCV compatibility
+                overlay_rgb = (overlay_colored * 255).astype(np.uint8)
+                overlay_rgb[:,:,3] = int(255*thermal_transparency)
+                overlay_rgb = cv2.resize(overlay_rgb, (int(overlay_rgb.shape[1] * Hive.resize_factor), int(overlay_rgb.shape[0] * Hive.resize_factor)), interpolation=cv2.INTER_NEAREST)
+                overlays[i] = overlay_rgb
 
         fig, ax = plt.subplots()  # Create a dummy figure to prevent automatic plotting
-        _contours = [ax.contour(tf.thermal_field, levels=contours, colors='none') for tf in [self.upper_tf, self.lower_tf]] # Only compute, no color
+        _contours = [None, None]
+        for i,tf in enumerate([self.upper_tf, self.lower_tf]):
+            if tf is not None:
+                _contours[i] = ax.contour(tf.thermal_field, levels=contours, colors='none') # Only compute, no color
         if annotate_contours:
-            labels = [ax.clabel(cs, inline=True, fontsize=8, fmt=lambda x: f"{x:.0f} C") for cs in _contours]
+            labels = [None, None]
+            for i, cs in enumerate(_contours):
+                if cs is not None:
+                    labels[i] = ax.clabel(cs, inline=True, fontsize=8, fmt=lambda x: f"{x:.0f} C")
         else:
             labels = []
 
         plt.close(fig)  # Close the figure to prevent display
 
         # Extract paths from the contour
-        paths = [cs.get_paths() for cs in _contours]
+        paths = [cs.get_paths() if cs is not None else None for cs in _contours]
 
         # Create a blank canvas for OpenCV drawing
-        canvas = [np.zeros_like(overlay[:,:,0]) for overlay in overlays]
+        canvas = [np.zeros_like(overlay[:,:,0]) if overlay is not None else None for overlay in overlays]
 
-        tf_shape = self.upper_tf.thermal_field.shape
+        tf_shape = self.upper_tf.thermal_field.shape if self.upper_tf is not None else self.lower_tf.thermal_field.shape
         # Draw the contours onto the canvas
         for i, frame_paths in enumerate(paths): # For each frame
+            if frame_paths is None:
+                continue
             for path in frame_paths: # For each level in the frame
                 if path.vertices.size == 0:
                     continue
@@ -606,8 +617,9 @@ class Hive():
                     cv2.polylines(canvas[i], [segment_points], isClosed=False, color=255, thickness=5)
 
         # Overlay the contours onto your RGB overlay
-        for i,_ in enumerate(overlays):
-            overlays[i][canvas[i] > 0] = (0, 0, 0, 255)  # Black contour with full opacity
+        for i, _ in enumerate(overlays):
+            if canvas[i] is not None:
+                overlays[i][canvas[i] > 0] = (0, 0, 0, 255)  # Black contour with full opacity
 
         # Put a circular marker at the max temperature coordinates
         cv2.circle(
@@ -619,9 +631,14 @@ class Hive():
         )
 
         # Prepare overlays for each picture
-        overlays_flipped = {0:overlays[0],1:overlays[1],2:cv2.flip(overlays[0],1),3:cv2.flip(overlays[1],1)}
+        overlays_flipped = {0:overlays[0],
+                            1:overlays[1],
+                            2:cv2.flip(overlays[0],1) if overlays[0] is not None else None,
+                            3:cv2.flip(overlays[1],1) if overlays[1] is not None else None}
         
         for i, bg in enumerate(rgb_imgs):
+            if overlays_flipped[i] is None:
+                continue
             overlay_rgb = overlays_flipped[i]
             # Add the max temperature value at the max temperature coordinates:
             if i%2 == max_temp_coords[0]:
@@ -685,7 +702,7 @@ class Hive():
         rgb_bg = [cv2.cvtColor(img, cv2.COLOR_GRAY2RGB) for img in self.pp_imgs]
         
         min_temp = -273
-        if self.upper_tf is not None and self.lower_tf is not None:
+        if self.upper_tf is not None or self.lower_tf is not None:
             rgb_bg, min_temp = self._tmp_snapshot(rgb_bg,v_min,v_max,thermal_transparency,contours, annotate_contours=annotate_contours) # Adds thermal field and isotherms to the images
 
         if self.htr_upper is not None and self.htr_lower is not None:
