@@ -14,7 +14,7 @@ from matplotlib.path import Path
 from EasIlastik import * # Just a simple package that runs iLastik in headless mode
 
 # Function to access files and force download
-def preload_images(src_path):
+def preload_images(src_path:str):
     for root, dirs, files in os.walk(src_path):
         for file in files:
             # Check for image file extensions
@@ -28,7 +28,7 @@ def preload_images(src_path):
                 except Exception as e:
                     print(f"Failed to preload {file_path}: {e}")
     
-def extractData(csv_path, hive:int, timestamps:pd.DatetimeIndex, section_prefix="#", verbose:bool=False)->pd.DataFrame:
+def extractData(csv_path:str, hive:int, timestamps:pd.DatetimeIndex, section_prefix:str="#", verbose:bool=False)->pd.DataFrame:
     '''
     Extracts data from a csv file for a specific hive at specific timestamps.
     '''
@@ -746,7 +746,7 @@ class Hive():
         if show_frame_border:
             # Draw a rectangle around the hive using self.thermal_shifts
             for i, img in enumerate(rgb_bg):
-                # Draw a rectangle around the hive
+                # Draw a rectangle around the bee arena
                 rectangles = self.getBeeArena()
                 cv2.rectangle(img, rectangles[i][0], rectangles[i][1], (255, 0, 0), 10)
 
