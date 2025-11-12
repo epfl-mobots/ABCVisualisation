@@ -214,6 +214,22 @@ class Hive():
     htr_size=(800,800) # Size of the heaters in pixels (width, height)
     base_thermal_shifts = [[(260,510),(260,500),(220,520),(220,420)], # Hive 1
                            [(260,510),(260,500),(190,440),(220,490)]] # Hive 2
+    
+    @staticmethod
+    def process_ilastik_mask(honey_mask, hive_num:int, rpi_num:int, min_size:int=3000,threshold:int =128):
+        #TODO: I think the lower is only true for aSensing1 hive1… Remove ?
+        if hive_num == 1:
+            if rpi_num == 2:
+                honey_mask[-30:,:] = 0            
+            elif rpi_num == 4:
+                honey_mask[-70:,:] = 0
+
+        mask = thresholding(honey_mask, threshold)
+
+        mask=morph(mask, kernel_size=7, close_first=False)
+        # Remove the pixel patches that are smaller than a certain size
+        mask=remove_small_patches(mask, min_size)
+        return mask
 
     def __init__(self, ts:pd.Timestamp, imgs:list, imgs_preprocessed:bool, imgs_names:list[str], upper:ThermalFrame = None, lower:ThermalFrame = None, metabolic:pd.DataFrame = None, htr_upper:pd.DataFrame = None, htr_lower:pd.DataFrame = None, hive_nb:int = 0):
         '''
@@ -228,6 +244,7 @@ class Hive():
         - metabolic: pd.DataFrame that has ['ul','ur','ll','lr'] as columns and the metabolic measures as values
         - htr_upper: pd.DataFrame that has ['status','pwm','avg_temp','obj','actuator_instance'] as columns
         - htr_lower: pd.DataFrame that has ['status','pwm','avg_temp','obj','actuator_instance'] as columns
+        - hive_nb: int, hive number (1 or 2). 0 if unknown. Used to verify data validity.
         '''
 
         if len(imgs) != 4 or len(imgs_names) != 4:
@@ -237,7 +254,7 @@ class Hive():
         
         self.ts = ts
         if hive_nb!=0:
-            self.valid = valid_ts(ts, hive_nb, recovery_time=120) # We consider 120' for ABCVisu hives
+            self.valid = valid_ts(ts, hive_nb, recovery_time=180) # We consider 180' for ABCVisu hives
         else:
             self.valid = True # We assume the data is valid if hive number is not known
 
@@ -319,16 +336,16 @@ class Hive():
         self.htr_content = htr_content
         frame_content = {}
         frame_content_ml = {}
-        for pos in ["upper", "lower"]:
-            frame_content[pos] = {}
-            frame_content_ml[pos] = {}
-            if pos == "upper" and (self.htr_content[1] == {} or self.htr_content[3] == {}):
+        for ihl in ["upper", "lower"]:
+            frame_content[ihl] = {}
+            frame_content_ml[ihl] = {}
+            if ihl == "upper" and (self.htr_content[1] == {} or self.htr_content[3] == {}):
                 continue
-            if pos == "lower" and (self.htr_content[2] == {} or self.htr_content[4] == {}):
+            if ihl == "lower" and (self.htr_content[2] == {} or self.htr_content[4] == {}):
                 continue
             for htr in range(10):
-                frame_content[pos][f'h{htr:02d}'] = np.mean([self.htr_content[1][f'h{htr:02d}'], self.htr_content[3][f'h{htr:02d}']]) if pos == "upper" else np.mean([self.htr_content[2][f'h{htr:02d}'], self.htr_content[4][f'h{htr:02d}']])
-                frame_content_ml[pos][f'h{htr:02d}'] = frame_content[pos][f'h{htr:02d}'] * 2 # Convert to ml (assuming 100% is 200ml)
+                frame_content[ihl][f'h{htr:02d}'] = np.mean([self.htr_content[1][f'h{htr:02d}'], self.htr_content[3][f'h{htr:02d}']]) if ihl == "upper" else np.mean([self.htr_content[2][f'h{htr:02d}'], self.htr_content[4][f'h{htr:02d}']])
+                frame_content_ml[ihl][f'h{htr:02d}'] = frame_content[ihl][f'h{htr:02d}'] * 2 # Convert to ml (assuming 100% is 200ml)
         self.frame_content = frame_content
         self.frame_content_ml = frame_content_ml
 
@@ -379,20 +396,6 @@ class Hive():
         bee_arena_px = self.getBeeArena()
         bee_arenas_imgs = [self.pp_imgs[rpi][bee_arena_px[rpi][0][1]:bee_arena_px[rpi][1][1], bee_arena_px[rpi][0][0]:bee_arena_px[rpi][1][0]] for rpi in range(4)]
         return bee_arenas_imgs
-        
-    def process_ilastik_mask(self, honey_mask, hive_num:int, rpi_num:int, min_size:int=3000,threshold:int =128):
-        if hive_num == 1:
-            if rpi_num == 2:
-                honey_mask[-30:,:] = 0            
-            elif rpi_num == 4:
-                honey_mask[-70:,:] = 0
-
-        mask = thresholding(honey_mask, threshold)
-
-        mask=morph(mask, kernel_size=7, close_first=False)
-        # Remove the pixel patches that are smaller than a certain size
-        mask=remove_small_patches(mask, min_size)
-        return mask
     
     def ilastikSegmentHoney(self, model_path:str, rpis:list[int]=[1,2,3,4], verbose:bool=False):
         '''
@@ -448,7 +451,7 @@ class Hive():
             # Open file in read mode
             with h5py.File(mask_path, "r") as f:
                 honey_mask = f["exported_data"][:, :, 0]
-                mask = self.process_ilastik_mask(honey_mask,hive_num=hive_num, rpi_num=i+1, min_size=2500, threshold=40)
+                mask = Hive.process_ilastik_mask(honey_mask,hive_num=hive_num, rpi_num=i+1, min_size=2500, threshold=40)
                 # Append the result to the list
                 masks.append(mask)
 
