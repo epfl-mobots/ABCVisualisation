@@ -804,6 +804,14 @@ class Hive():
                         Use None for RPi images that should not be corrected.
         '''
         assert len(corrections) == len(self.honey_masks), "You must provide a correction for each RPi image. Use None for RPi images that do not need correction."
+        # Ensure each correction has the same size as the corresponding honey mask
+        for i, correction in enumerate(corrections):
+            if correction is not None:
+                assert correction.shape == self.honey_masks[i].shape, f"Correction for RPi {i+1} has a different size than the honey mask: {correction.shape} vs {self.honey_masks[i].shape}"
+                assert correction.dtype == np.uint8, f"Correction for RPi {i+1} has a dtype of {correction.dtype} instead of np.uint8"
+                # Ensure the correction is binary
+                if np.max(correction) <= 1:
+                    corrections[i] = (correction * 255).astype(np.uint8)
         for i, mask in enumerate(self.honey_masks):
             if mask is not None and corrections[i] is not None:
                 self.honey_masks[i] = cv2.bitwise_and(mask, corrections[i])
