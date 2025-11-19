@@ -7,6 +7,7 @@ from ABCImaging.VideoManagment.videolib import imageHiveOverview
 from ABCImaging.Preprocessing.preproc import beautify_frame
 from ABCImaging.CellContentIdentification.cellcontent import *
 from ABCImaging.HiveOpenings.libOpenings import valid_ts
+from ABCImaging.libimage import RPiCamV3_img_shape_RGB
 from ABCThermalPlots.thermalutil import *
 from InfluxDBInterface.libdb import readInfluxCSV
 from PIL import Image  # Or OpenCV if preferred
@@ -292,6 +293,9 @@ class Hive():
         '''
         htr_pos = {}
         for i in range(4):
+            if self.imgs[i] is None:
+                htr_pos[i] = None
+                continue
             htr_pos[i] = {}
             for j in range(10):
                 x_pos = self.thermal_shifts[i][0] + self.inter_htr_dist+ (4-j//2) * (self.inter_htr_dist + self.htr_size[0])
@@ -393,8 +397,22 @@ class Hive():
         Returns the images of the heaters for each RPi. The images are cropped to the size of the heaters.
         '''
         # Check if self.pp_imgs is None are computed or not. Compute if not
+        if self.pp_imgs is None:
+            self.pp_imgs = []
+            for rpi in range(4):
+                if self.imgs[rpi] is None:
+                    self.pp_imgs.append(None)
+                else:
+                    self.pp_imgs.append(beautify_frame(self.imgs[rpi]))
+
         bee_arena_px = self.getBeeArena()
-        bee_arenas_imgs = [self.pp_imgs[rpi][bee_arena_px[rpi][0][1]:bee_arena_px[rpi][1][1], bee_arena_px[rpi][0][0]:bee_arena_px[rpi][1][0]] for rpi in range(4)]
+        bee_arenas_imgs = []
+        for rpi in range(4):
+            if self.pp_imgs[rpi] is None:
+                bee_arenas_imgs.append(None)
+            else:
+                bee_arenas_imgs.append(self.pp_imgs[rpi][bee_arena_px[rpi][0][1]:bee_arena_px[rpi][1][1], bee_arena_px[rpi][0][0]:bee_arena_px[rpi][1][0]])
+        
         return bee_arenas_imgs
     
     def ilastikSegmentHoney(self, model_path:str, rpis:list[int]=[1,2,3,4], verbose:bool=False):
@@ -700,9 +718,13 @@ class Hive():
             # Preprocess images with Preprocessing library
             self.pp_imgs = []
             for img in self.imgs:
-                self.pp_imgs.append(beautify_frame(img))
+                if img is None:
+                    self.pp_imgs.append(None)
+                else:
+                    self.pp_imgs.append(beautify_frame(img))
 
-        rgb_bg = [cv2.cvtColor(img, cv2.COLOR_GRAY2RGB) for img in self.pp_imgs]
+        black_image_rgb = np.zeros(RPiCamV3_img_shape_RGB, dtype=np.uint8)
+        rgb_bg = [cv2.cvtColor(img, cv2.COLOR_GRAY2RGB) if img is not None else black_image_rgb.copy() for img in self.pp_imgs]
         
         min_temp = -273
         if self.upper_tf is not None or self.lower_tf is not None:
@@ -745,7 +767,8 @@ class Hive():
         assert len(self.honey_masks) == 4, "Honey masks must contain 4 images"
         assert self.pp_imgs is not None, "Images not preprocessed. Use snapshot() to preprocess the images first."
 
-        rgb_bg = [cv2.cvtColor(img, cv2.COLOR_GRAY2RGB) for img in self.pp_imgs]
+        black_image_rgb = np.zeros(RPiCamV3_img_shape_RGB, dtype=np.uint8)
+        rgb_bg = [cv2.cvtColor(img, cv2.COLOR_GRAY2RGB) if img is not None else black_image_rgb.copy() for img in self.pp_imgs]
         if show_frame_border:
             # Draw a rectangle around the hive using self.thermal_shifts
             for i, img in enumerate(rgb_bg):
