@@ -303,7 +303,7 @@ class Hive():
                 if i < 2:
                     htr_pos[i][f'h{j:02d}'] = ((x_pos, y_pos),(x_pos+self.htr_size[0],y_pos+self.htr_size[1]))
                 else:
-                    htr_pos[i][f'h{j:02d}'] = (self.imgs[0].shape[1]-x_pos-self.htr_size[0],y_pos),(self.imgs[0].shape[1]-x_pos,y_pos+self.htr_size[1])
+                    htr_pos[i][f'h{j:02d}'] = (RPiCamV3_img_shape_RGB[1]-x_pos-self.htr_size[0],y_pos),(RPiCamV3_img_shape_RGB[1]-x_pos,y_pos+self.htr_size[1])
         self.htr_pos = htr_pos
 
     def computeHtrHoneyContent(self, verbose:bool=False):
