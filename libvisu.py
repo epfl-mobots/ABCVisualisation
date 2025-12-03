@@ -51,10 +51,10 @@ def generateMetabolicDF(df:pd.DataFrame)->pd.DataFrame:
     parameters:
     - df: pd.DataFrame containing all data for our hive and timestamps. Index should be the timestamps.
     '''
-    metabolic_out = pd.DataFrame(index=df.index)
-    # Remove duplicates in index
-    metabolic_out = metabolic_out[~metabolic_out.index.duplicated(keep='first')]
     metabolic_in = df[(df['_measurement'] == 'co2') & (df['_field'] == 'co2')]
+    # Remove all negative values
+    metabolic_in = metabolic_in[metabolic_in['_value'] >= 0]
+    metabolic_out = pd.DataFrame(index=metabolic_in.index.unique())
 
     column_names = ['ul','ur','ll','lr'] # Upper left, upper right, lower left, lower right
     for column_name in column_names:
@@ -698,7 +698,7 @@ class Hive():
 
                 # Draw a rectangle around the heater
                 color = (255 * pwm / 950,0,0)
-                width = int(2 + 7 * pwm / 950)
+                width = int(4 + 7 * pwm / 950)
                 mrg = 10 # Just a small padding around the text
 
                 cv2.rectangle(rgb_bg[i], self.htr_pos[i][htr][0], self.htr_pos[i][htr][1], color, width)
