@@ -822,13 +822,15 @@ class Hive():
             
         self.honey_masks = masks
 
-    def correctHoneyMasks(self, corrections:list):
+    def correctHoneyMasks(self, corrections:list, neg_mask:bool):
         '''
-        Corrects the honey masks by applying a logical AND operation between the masks and the corrections.
-        args:
-        - corrections: list of 4 images, corrections to apply to the honey masks. 
+        Corrects the honey masks by applying a logical AND (negative mask) or OR (positive mask) operation between the masks and the corrections.
+
+        :param corrections: list of 4 images, corrections to apply to the honey masks. 
                         The images should be binary and have the same size as the honey masks. 
                         Use None for RPi images that should not be corrected.
+        :param neg_mask: bool, if True, the correction masks are considered as negative masks (i.e., areas to remove from the honey masks). Else,
+                        they are considered as positive masks (i.e., areas to force to the honey masks).
         '''
         assert len(corrections) == len(self.honey_masks), "You must provide a correction for each RPi image. Use None for RPi images that do not need correction."
         # Ensure each correction has the same size as the corresponding honey mask
@@ -841,7 +843,10 @@ class Hive():
                     corrections[i] = (correction * 255).astype(np.uint8)
         for i, mask in enumerate(self.honey_masks):
             if mask is not None and corrections[i] is not None:
-                self.honey_masks[i] = cv2.bitwise_and(mask, corrections[i])
+                if neg_mask:
+                    self.honey_masks[i] = cv2.bitwise_and(mask, corrections[i])
+                else:
+                    self.honey_masks[i] = cv2.bitwise_or(mask, corrections[i])
             elif corrections[i] is not None:
                 raise ValueError(f"Correction for RPi {i+1} is not None but the mask is None. Please check your inputs.")
 
