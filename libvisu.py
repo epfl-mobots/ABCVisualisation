@@ -690,25 +690,33 @@ class Hive():
     
     def _htr_snapshot(self,rgb_bg:list):
         # Draw a rectangle around the heaters and add information about the heaters
+        htr_colors = {
+            'h00': (255, 165, 0),
+            'h01': (0, 255, 0),
+            'h02': (0, 0, 255),
+            'h03': (255, 255, 0),
+            'h04': (255, 0, 255),
+            'h05': (0, 255, 255),
+            'h06': (128, 0, 128),
+            'h07': (128, 128, 0),
+            'h08': (0, 128, 128),
+            'h09': (128, 128, 128)
+        }
         for i, _ in enumerate(rgb_bg):
-            htrs = self.htr_upper if (i == 0 or i == 2) else self.htr_lower
             for htr in [f'h{i:02d}' for i in range(10)]:
-                htr_df = htrs[htrs['actuator_instance']==htr]
-                pwm = htr_df[htr_df['_field']=='pwm']['_value'].values[0]
-                obj = htr_df[htr_df['_field']=='obj']['_value'].values[0]
-
                 # Draw a rectangle around the heater
-                color = (255 * pwm / 950,0,0)
-                width = int(4 + 7 * pwm / 950)
+                color = htr_colors[htr]
+                width = 9
                 mrg = 10 # Just a small padding around the text
+                linetype = cv2.LINE_8
 
-                cv2.rectangle(rgb_bg[i], self.htr_pos[i][htr][0], self.htr_pos[i][htr][1], color, width)
-                # Put pwm bottom left
-                #cv2.putText(rgb_bg[i], f"{int(pwm)}", (self.htr_pos[i][htr][0][0]+mrg,self.htr_pos[i][htr][1][1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
-                # Put obj bottom right
-                #putTextRightJustify(rgb_bg[i], f"{int(obj)}", (self.htr_pos[i][htr][1][0]-mrg,self.htr_pos[i][htr][1][1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA, vertical_align="center")
-                # Put the heater number on top right of the rectangle
-                cv2.putText(rgb_bg[i], htr, (self.htr_pos[i][htr][0][0]+mrg,self.htr_pos[i][htr][0][1]+10*mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 8, cv2.LINE_AA)
+                cv2.rectangle(rgb_bg[i], self.htr_pos[i][htr][0], self.htr_pos[i][htr][1], color, width, linetype)
+                # Put the heater number bottom right
+                if htr == 'h00' and i == 3:
+                    # Put the heater number bottom left
+                    cv2.putText(rgb_bg[i], htr, (self.htr_pos[i][htr][0][0]+mrg,self.htr_pos[i][htr][1][1]-5*mrg), cv2.FONT_HERSHEY_SIMPLEX, 3.2, color, 12, cv2.LINE_AA)
+                else:
+                    putTextRightJustify(rgb_bg[i], htr, (self.htr_pos[i][htr][1][0]-mrg,self.htr_pos[i][htr][1][1]-5*mrg), cv2.FONT_HERSHEY_SIMPLEX, 3.2, color, 12, cv2.LINE_AA, vertical_align="center")
 
     def snapshot(self, thermal_transparency:float=0.25, v_min:float=10, v_max:float=35, contours:list=[], annotate_contours:bool=False, annotate_names:bool=True, show_frame_border:bool=False):
         '''
