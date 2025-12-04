@@ -298,12 +298,13 @@ class Hive():
                 continue
             htr_pos[i] = {}
             for j in range(10):
-                x_pos = self.thermal_shifts[i][0] + self.inter_htr_dist+ (4-j//2) * (self.inter_htr_dist + self.htr_size[0])
-                y_pos = self.thermal_shifts[i][1] + 2*self.inter_htr_dist + (j%2) * (3*self.inter_htr_dist + self.htr_size[1])
                 if i < 2:
-                    htr_pos[i][f'h{j:02d}'] = ((x_pos, y_pos),(x_pos+self.htr_size[0],y_pos+self.htr_size[1]))
+                    x_pos = self.thermal_shifts[i][0] + self.inter_htr_dist + (4-j//2) * (self.inter_htr_dist + self.htr_size[0])
                 else:
-                    htr_pos[i][f'h{j:02d}'] = (RPiCamV3_img_shape_RGB[1]-x_pos-self.htr_size[0],y_pos),(RPiCamV3_img_shape_RGB[1]-x_pos,y_pos+self.htr_size[1])
+                    x_pos = self.thermal_shifts[i][0] + self.inter_htr_dist + (j//2) * (self.inter_htr_dist + self.htr_size[0])
+
+                y_pos = self.thermal_shifts[i][1] + 2*self.inter_htr_dist + (j%2) * (3*self.inter_htr_dist + self.htr_size[1])
+                htr_pos[i][f'h{j:02d}'] = ((x_pos, y_pos),(x_pos+self.htr_size[0],y_pos+self.htr_size[1]))
         self.htr_pos = htr_pos
 
     def computeHtrHoneyContent(self, verbose:bool=False):
@@ -349,7 +350,7 @@ class Hive():
                 continue
             for htr in range(10):
                 frame_content[ihl][f'h{htr:02d}'] = np.mean([self.htr_content[1][f'h{htr:02d}'], self.htr_content[3][f'h{htr:02d}']]) if ihl == "upper" else np.mean([self.htr_content[2][f'h{htr:02d}'], self.htr_content[4][f'h{htr:02d}']])
-                frame_content_ml[ihl][f'h{htr:02d}'] = frame_content[ihl][f'h{htr:02d}'] * 2 # Convert to ml (assuming 100% is 200ml)
+                frame_content_ml[ihl][f'h{htr:02d}'] = frame_content[ihl][f'h{htr:02d}'] * 0.9 # Convert to ml (assuming 100% is 90ml)
         self.frame_content = frame_content
         self.frame_content_ml = frame_content_ml
 
@@ -759,7 +760,7 @@ class Hive():
 
         return assembled_img
     
-    def honeySnapshot(self, transparency:float=0.25, v_min:float=10, v_max:float=35, contours:list=[], annotate_names:bool=True, show_frame_border:bool=False):
+    def honeySnapshot(self, transparency:float=0.25, v_min:float=10, v_max:float=35, contours:list=[], annotate_names:bool=True, show_frame_border:bool=False, show_htrs:bool=False):
         '''
         Generates a global image with the 4 images of the hives with the timestamp on the pictures. It then adds the honey segmentation masks ontop of the images.
         '''
@@ -790,6 +791,10 @@ class Hive():
         for i, img in enumerate(rgb_bg):
             if masks_rgba[i] is not None:
                 rgb_bg[i] = _add_transparent_image(img, masks_rgba[i], x_offset=self.thermal_shifts[i][0], y_offset=self.thermal_shifts[i][1])
+        
+        if show_htrs and self.htr_pos is not None:
+            self._htr_snapshot(rgb_bg) # Adds heaters data on the images
+
         if annotate_names:
             assembled_img = imageHiveOverview(rgb_bg, rgb=True, img_names=self.imgs_names, dt=self.ts, valid=self.valid)
         else:
