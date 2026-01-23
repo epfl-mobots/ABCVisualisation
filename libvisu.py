@@ -201,6 +201,22 @@ def putTextRightJustify(
     # Draw the text
     cv2.putText(img, text, (x, y), font, font_scale, color, thickness, line_type)
 
+thermal_shifts = {
+    'aSensing1' : {
+        1:[(260,510),(260,500),(220,520),(220,420)],
+        2:[(260,510),(260,500),(190,440),(210,490)]
+    },
+    'aSensing2' : {
+        1:[(260,520),(260,510),(210,490),(230,370)]
+    },
+    'aSensing3' : {
+        1:[(280,520),(320,430),(230,440),(230,450)]
+    },
+    'aSensing4' : {
+        1:[(240,520),(280,460),(240,440),(180,440)]
+    }
+}
+
 class Hive():
     '''
     This class is meant to hold imaging, thermal and metabolic data for a specific hive at a specific time. It contains the following data:
