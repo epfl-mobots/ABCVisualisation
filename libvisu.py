@@ -727,7 +727,7 @@ class Hive():
                     cv2.putText(rgb_bg[i], f"{int(pwm)}", (self.htr_pos[i][htr][0][0]+mrg,self.htr_pos[i][htr][1][1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
                     # Put obj bottom right
                     putTextRightJustify(rgb_bg[i], f"{int(obj)}", (self.htr_pos[i][htr][1][0]-mrg,self.htr_pos[i][htr][1][1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA, vertical_align="center")
-                    # Put the heater number on top right of the rectangle
+                    # Put the heater number on top left of the rectangle
                     cv2.putText(rgb_bg[i], htr, (self.htr_pos[i][htr][0][0]+mrg,self.htr_pos[i][htr][0][1]+10*mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
 
     def snapshot(self, thermal_transparency:float=0.25, v_min:float=10, v_max:float=35, contours:list=[], annotate_contours:bool=False, annotate_names:bool=True, show_frame_border:bool=False, check_validity:bool=True, use_cet_time:bool=False):
