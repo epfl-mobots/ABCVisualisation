@@ -726,7 +726,7 @@ class Hive():
                     # Put pwm bottom left
                     cv2.putText(rgb_bg[i], f"{int(pwm)}", (self.htr_pos[i][htr][0][0]+mrg,self.htr_pos[i][htr][1][1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
                     # Put obj bottom right
-                    putTextRightJustify(rgb_bg[i], f"{int(obj)}", (self.htr_pos[i][htr][1][0]-mrg,self.htr_pos[i][htr][1][1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA, vertical_align="center")
+                    putTextRightJustify(rgb_bg[i], f"{int(obj)} C", (self.htr_pos[i][htr][1][0]-mrg,self.htr_pos[i][htr][1][1]-mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA, vertical_align="center")
                     # Put the heater number on top left of the rectangle
                     cv2.putText(rgb_bg[i], htr, (self.htr_pos[i][htr][0][0]+mrg,self.htr_pos[i][htr][0][1]+10*mrg), cv2.FONT_HERSHEY_SIMPLEX, 3, (0,0,0), 5, cv2.LINE_AA)
 
